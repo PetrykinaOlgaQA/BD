@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card mb-4">
+    <div class="card-body">
+        {# Даже если в БД лежит <script>alert(1)</script>, он отобразится как текст, а не исполняемый код. #}
+        <p>{{ post.content }}</p>
+        <small class="text-muted">Автор: {{ post.author }} • {{ post.created_date.strftime('%d.%m.%Y %H:%M') }}</small>
+        {% if user and user.id == post.user_id %}
+            <div class="mt-2">
+                <a href="{{ url_for('edit_post', post_id=post.id) }}" class="btn btn-sm btn-outline-primary">Редактировать пост</a>
+                <form method="POST" action="{{ url_for('delete_post', post_id=post.id) }}" style="display:inline;" onsubmit="return confirm('Удалить пост и все комментарии?')">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Удалить пост</button>
+                </form>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<h4>💬 Комментарии ({{ comments|length }})</h4>
+{% for c in comments %}
+<div class="card mb-2">
+    <div class="card-body">
+        <strong>{{ c.author }}</strong> • {{ c.created_date.strftime('%d.%m.%Y %H:%M') }}
+        <p>{{ c.content }}</p>
+        {% if user and user.id == c.user_id %}
+            <div class="mt-2">
+                <a href="{{ url_for('edit_comment', comment_id=c.id) }}" class="btn btn-sm btn-outline-primary">Редактировать</a>
+                <form method="POST" action="{{ url_for('delete_comment', comment_id=c.id) }}" style="display:inline;" onsubmit="return confirm('Удалить комментарий?')">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Удалить</button>
+                </form>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endfor %}
+
+{% if user %}
+<hr>
+<form method="POST">
+    <div class="mb-3">
+        <textarea name="content" class="form-control" rows="3" placeholder="Ваш комментарий..." required></textarea>
+    </div>
+    <button type="submit" class="btn btn-success">Отправить</button>
+</form>
+{% else %}
+<p><a href="{{ url_for('login', next=request.url) }}">Войдите</a>, чтобы оставить комментарий.</p>
+{% endif %}
+{% endblock %}

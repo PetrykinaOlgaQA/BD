@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>📊 Статистика</h2>
+<div class="row g-4">
+    <div class="col-md-4">
+        <div class="card text-center bg-light">
+            <div class="card-body">
+                <h3 class="card-title">{{ user_count }}</h3>
+                <p class="card-text text-muted">Пользователей</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-center bg-light">
+            <div class="card-body">
+                <h3 class="card-title">{{ post_count }}</h3>
+                <p class="card-text text-muted">Постов</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-center bg-light">
+            <div class="card-body">
+                <h3 class="card-title">{{ comment_count }}</h3>
+                <p class="card-text text-muted">Комментариев</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

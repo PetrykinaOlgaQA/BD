@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>📝 Создать пост</h2>
+<form method="POST">
+    <div class="mb-3">
+        <label class="form-label">Название темы *</label>
+        <input name="topic_title" class="form-control" placeholder="Например: Flask или Hibernate" required>
+    </div>
+    <div class="mb-3">
+        <label class="form-label">Содержание поста *</label>
+        <textarea name="content" class="form-control" rows="6" placeholder="Опишите свою проблему..." required></textarea>
+    </div>
+    <button type="submit" class="btn btn-success">Опубликовать пост</button>
+    <a href="{{ url_for('index') }}" class="btn btn-secondary">Отмена</a>
+</form>
+{% endblock %}

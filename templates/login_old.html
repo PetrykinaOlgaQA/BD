@@ -1,0 +1,27 @@
+<div class="row justify-content-center">
+    <div class="col-md-5">
+        <div class="card">
+            <div class="card-header">
+                <h5>Вход</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-3">
+                        <input name="email" type="email" class="form-control" placeholder="Email" required>
+                    </div>
+                    <div class="mb-3">
+                        <input name="password" type="password" class="form-control" placeholder="Пароль" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Войти</button>
+                </form>
+                <p class="mt-3 small text-muted">Тестовый аккаунт: <br>
+                   Email: <strong>admin@example.com</strong><br>
+                   Пароль: <strong>123456</strong>
+                </p>
+                <p class="mt-3">
+                    <a href="{{ url_for('register') }}">Нет аккаунта? Зарегистрируйтесь</a>
+                </p>
+            </div>
+        </div>
+    </div>
+</div>

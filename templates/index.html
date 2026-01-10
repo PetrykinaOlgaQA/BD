@@ -1,0 +1,734 @@
+{% extends "base.html" %}
+
+{% block title %}Главная - Форум{% endblock %}
+
+{% block content %}
+{% if theme == 'old' %}
+    {% include 'index_old.html' %}
+{% else %}
+<!-- Герой секция с анимацией -->
+<div class="hero-section mb-5">
+    <div class="container">
+        <div class="row align-items-center">
+            <div class="col-lg-8">
+                <h1 class="display-3 fw-bold mb-3 animate-text">
+                    🔁 Бесконечный Loop
+                </h1>
+                <p class="lead mb-4">
+                    Где баги встречают решения, а Python утешает после Java.
+                </p>
+                {% if user %}
+                    <div class="d-flex flex-wrap gap-3">
+                        <a href="{{ url_for('create_topic') }}" class="btn btn-light btn-lg pulse-btn">
+                            <i class="bi bi-plus-circle-fill me-2"></i>Создать тему
+                        </a>
+                        <a href="{{ url_for('create_post') }}" class="btn btn-outline-light btn-lg">
+                            <i class="bi bi-pencil-square me-2"></i>Создать пост
+                        </a>
+                    </div>
+                {% else %}
+                    <a href="{{ url_for('login', next=url_for('index')) }}" class="btn btn-light btn-lg">
+                        Войдите, чтобы создавать посты
+                    </a>
+                {% endif %}
+            </div>
+            <div class="col-lg-4 text-center d-none d-lg-block">
+                <div class="floating-icon">
+                    <i class="bi bi-code-slash" style="font-size: 8rem; opacity: 0.1;"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Быстрый поиск с автодополнением -->
+<div class="card mb-4 search-card">
+    <div class="card-body p-4">
+        <form method="GET" class="search-form">
+            <div class="input-group input-group-lg">
+                <span class="input-group-text bg-white border-end-0">
+                    <i class="bi bi-search text-purple"></i>
+                </span>
+                <input 
+                    name="q" 
+                    type="text" 
+                    class="form-control border-start-0" 
+                    placeholder="Поиск по постам, темам и авторам..."
+                    value="{{ search_query }}"
+                    id="searchInput"
+                    autocomplete="off"
+                >
+                {% if search_query %}
+                    <button type="button" class="btn btn-outline-secondary" onclick="clearSearch()">
+                        <i class="bi bi-x"></i>
+                    </button>
+                {% endif %}
+                <button class="btn btn-primary" type="submit">
+                    <i class="bi bi-search me-2"></i>Найти
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Расширенные фильтры с анимацией -->
+<div class="card mb-4 filter-card">
+    <div class="card-header bg-transparent border-0 p-3">
+        <button class="btn btn-link text-decoration-none w-100 text-start p-0" type="button" data-bs-toggle="collapse" data-bs-target="#filtersCollapse">
+            <h5 class="mb-0 d-flex align-items-center justify-content-between">
+                <span><i class="bi bi-funnel me-2"></i>Расширенные фильтры</span>
+                <i class="bi bi-chevron-down transition-icon"></i>
+            </h5>
+        </button>
+    </div>
+    <div class="collapse {% if topic_filter or author_filter or date_filter %}show{% endif %}" id="filtersCollapse">
+        <div class="card-body">
+            <form method="GET" id="filterForm">
+                <input type="hidden" name="sort" value="{{ current_sort }}">
+                <input type="hidden" name="q" value="{{ search_query }}">
+                <input type="hidden" name="page" value="1">
+
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">
+                            <i class="bi bi-tag me-1"></i>Тема
+                        </label>
+                        <select name="topic" class="form-select" onchange="document.getElementById('filterForm').submit()">
+                            <option value="">Все темы</option>
+                            {% for topic_title in topics_list %}
+                            <option value="{{ topic_title }}" {% if topic_filter == topic_title %}selected{% endif %}>
+                                {{ topic_title | truncate(40) }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">
+                            <i class="bi bi-person me-1"></i>Автор
+                        </label>
+                        <input 
+                            type="text" 
+                            name="author" 
+                            class="form-control" 
+                            placeholder="Имя автора..."
+                            value="{{ author_filter }}"
+                            onchange="document.getElementById('filterForm').submit()"
+                        >
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">
+                            <i class="bi bi-calendar me-1"></i>Период
+                        </label>
+                        <select name="date" class="form-select" onchange="document.getElementById('filterForm').submit()">
+                            <option value="">Все время</option>
+                            <option value="today" {% if date_filter == 'today' %}selected{% endif %}>Сегодня</option>
+                            <option value="week" {% if date_filter == 'week' %}selected{% endif %}>Последняя неделя</option>
+                            <option value="month" {% if date_filter == 'month' %}selected{% endif %}>Последний месяц</option>
+                        </select>
+                    </div>
+                </div>
+
+                {% if topic_filter or author_filter or date_filter %}
+                <div class="mt-3">
+                    <a href="{{ url_for('index', sort=current_sort, q=search_query) }}" class="btn btn-outline-danger btn-sm">
+                        <i class="bi bi-x-circle me-1"></i>Сбросить фильтры
+                    </a>
+                </div>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Сортировка с иконками -->
+<div class="card mb-4">
+    <div class="card-body text-center">
+        <div class="d-flex flex-column flex-md-row justify-content-center align-items-center gap-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center justify-content-center">
+                <strong class="me-2">Сортировка:</strong>
+                <div class="btn-group" role="group">
+                    <a class="btn btn-sm {% if current_sort == 'new' %}btn-primary{% else %}btn-outline-primary{% endif %}"
+                       href="{{ url_for('index', sort='new', q=search_query, topic=topic_filter, author=author_filter, date=date_filter) }}">
+                        <i class="bi bi-clock me-1"></i>Новые
+                    </a>
+                    <a class="btn btn-sm {% if current_sort == 'old' %}btn-primary{% else %}btn-outline-primary{% endif %}"
+                       href="{{ url_for('index', sort='old', q=search_query, topic=topic_filter, author=author_filter, date=date_filter) }}">
+                        <i class="bi bi-clock-history me-1"></i>Старые
+                    </a>
+                    <a class="btn btn-sm {% if current_sort == 'popular' %}btn-primary{% else %}btn-outline-primary{% endif %}"
+                       href="{{ url_for('index', sort='popular', q=search_query, topic=topic_filter, author=author_filter, date=date_filter) }}">
+                        <i class="bi bi-fire me-1"></i>Популярные
+                    </a>
+                </div>
+            </div>
+            <div class="badge bg-light text-dark px-3 py-2">
+                <i class="bi bi-file-text me-1"></i>Найдено: <strong>{{ total }}</strong>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Список постов с улучшенным дизайном -->
+<h2 class="mb-4">
+    <i class="bi bi-chat-dots-fill me-2"></i>Последние обсуждения
+</h2>
+
+<div id="postsContainer">
+{% for p in posts %}
+<div class="card mb-4 post-card">
+    <div class="card-body p-4">
+        <div class="d-flex justify-content-between align-items-start mb-3">
+            <div class="flex-grow-1">
+                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                    <span class="badge bg-primary">
+                        <i class="bi bi-folder me-1"></i>{{ p.topic_title }}
+                    </span>
+                    {% if p.comment_count > 0 %}
+                    <span class="badge bg-success">
+                        <i class="bi bi-chat-dots me-1"></i>{{ p.comment_count }}
+                    </span>
+                    {% endif %}
+                    <span class="badge bg-secondary">
+                        <i class="bi bi-eye me-1"></i>{{ p.comment_count + 10 }}
+                    </span>
+                </div>
+                
+                <h5 class="card-title mb-3">
+                    <a href="{{ url_for('post', post_id=p.id) }}" class="text-decoration-none text-dark post-link">
+                        {% if search_query %}
+                            {{ p.content | truncate(150) | replace(search_query, '<mark class="highlight">' + search_query + '</mark>') | safe }}
+                        {% else %}
+                            {{ p.content | truncate(150) }}
+                        {% endif %}
+                    </a>
+                </h5>
+                
+                <div class="d-flex flex-wrap align-items-center gap-3 text-muted small mb-3">
+                    <span class="d-flex align-items-center">
+                        <i class="bi bi-person-circle me-1"></i>{{ p.author }}
+                    </span>
+                    <span class="d-flex align-items-center">
+                        <i class="bi bi-calendar3 me-1"></i>{{ p.created_date.strftime('%d.%m.%Y %H:%M') }}
+                    </span>
+                </div>
+            </div>
+            
+            {% if user and user.id == p.user_id %}
+            <div class="dropdown ms-3">
+                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown">
+                    <i class="bi bi-three-dots-vertical"></i>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li>
+                        <a class="dropdown-item" href="{{ url_for('edit_post', post_id=p.id) }}">
+                            <i class="bi bi-pencil me-2"></i>Редактировать
+                        </a>
+                    </li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li>
+                        <form method="POST" action="{{ url_for('delete_post', post_id=p.id) }}" 
+                              onsubmit="return confirm('Удалить пост и все комментарии?')" 
+                              style="display: inline;">
+                            <button type="submit" class="dropdown-item text-danger">
+                                <i class="bi bi-trash me-2"></i>Удалить
+                            </button>
+                        </form>
+                    </li>
+                </ul>
+            </div>
+            {% endif %}
+        </div>
+        
+        <div class="d-flex justify-content-between align-items-center">
+            <a href="{{ url_for('post', post_id=p.id) }}" class="btn btn-primary">
+                <i class="bi bi-arrow-right me-2"></i>Читать далее
+            </a>
+            <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-outline-secondary" onclick="sharePost({{ p.id }})" title="Поделиться">
+                    <i class="bi bi-share"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="copyLink({{ p.id }})" title="Копировать ссылку">
+                    <i class="bi bi-link-45deg"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endfor %}
+</div>
+
+{% if not posts %}
+<div class="card text-center py-5 empty-state">
+    <div class="card-body">
+        <div class="empty-icon mb-4">
+            <i class="bi bi-inbox"></i>
+        </div>
+        <h4 class="mt-3 mb-2">Пока нет ни одного поста</h4>
+        <p class="text-muted mb-4">Разомкни Loop первым! 🌀</p>
+        {% if user %}
+            <a href="{{ url_for('create_post') }}" class="btn btn-primary btn-lg pulse-btn">
+                <i class="bi bi-plus-circle me-2"></i>Создать первый пост
+            </a>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Плавающая кнопка быстрых действий (только для авторизованных) -->
+{% if user %}
+<div class="fab-container">
+    <button class="fab-main" onclick="toggleFAB()">
+        <i class="bi bi-plus-lg"></i>
+    </button>
+    <div class="fab-menu">
+        <a href="{{ url_for('create_post') }}" class="fab-item" title="Создать пост">
+            <i class="bi bi-pencil-square"></i>
+            <span>Пост</span>
+        </a>
+        <a href="{{ url_for('create_topic') }}" class="fab-item" title="Создать тему">
+            <i class="bi bi-tag"></i>
+            <span>Тема</span>
+        </a>
+    </div>
+</div>
+{% endif %}
+
+<!-- Улучшенная пагинация -->
+{% if total_pages > 1 %}
+<nav aria-label="Постраничная навигация" class="mt-5">
+    <ul class="pagination justify-content-center flex-wrap">
+        {% if page > 1 %}
+            <li class="page-item">
+                <a class="page-link" href="{{ url_for('index', page=page-1, sort=current_sort, q=search_query, topic=topic_filter, author=author_filter, date=date_filter) }}">
+                    <i class="bi bi-chevron-left"></i> Предыдущая
+                </a>
+            </li>
+        {% endif %}
+
+        {% for p in range(1, total_pages + 1) %}
+            {% if p == page %}
+                <li class="page-item active">
+                    <span class="page-link">{{ p }}</span>
+                </li>
+            {% elif p <= 2 or p > total_pages - 2 or (p >= page - 1 and p <= page + 1) %}
+                <li class="page-item">
+                    <a class="page-link" href="{{ url_for('index', page=p, sort=current_sort, q=search_query, topic=topic_filter, author=author_filter, date=date_filter) }}">{{ p }}</a>
+                </li>
+            {% elif p == 3 or p == total_pages - 2 %}
+                <li class="page-item disabled">
+                    <span class="page-link">...</span>
+                </li>
+            {% endif %}
+        {% endfor %}
+
+        {% if page < total_pages %}
+            <li class="page-item">
+                <a class="page-link" href="{{ url_for('index', page=page+1, sort=current_sort, q=search_query, topic=topic_filter, author=author_filter, date=date_filter) }}">
+                    Следующая <i class="bi bi-chevron-right"></i>
+                </a>
+            </li>
+        {% endif %}
+    </ul>
+</nav>
+{% endif %}
+
+<style>
+    .hero-section {
+        background: linear-gradient(135deg, #9c27b0 0%, #6a1b9a 50%, #7b1fa2 100%);
+        color: #fff;
+        padding: 4rem 0;
+        border-radius: 20px;
+        margin-bottom: 2rem;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .hero-section::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        right: -10%;
+        width: 500px;
+        height: 500px;
+        background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+        border-radius: 50%;
+        animation: pulse 4s ease-in-out infinite;
+    }
+
+    .animate-text {
+        animation: slideUp 0.8s ease-out;
+    }
+
+    .pulse-btn {
+        animation: pulse 2s ease-in-out infinite;
+    }
+
+    .floating-icon {
+        animation: float 3s ease-in-out infinite;
+    }
+
+    @keyframes float {
+        0%, 100% { transform: translateY(0px); }
+        50% { transform: translateY(-20px); }
+    }
+
+    .search-card {
+        background: linear-gradient(135deg, #fff 0%, #faf5ff 100%);
+        border: 2px solid #e1bee7;
+    }
+
+    .filter-card {
+        border: 2px solid #f3e5f5;
+    }
+
+    .transition-icon {
+        transition: transform 0.3s ease;
+    }
+
+    [data-bs-toggle="collapse"][aria-expanded="true"] .transition-icon {
+        transform: rotate(180deg);
+    }
+
+    .post-link {
+        transition: color 0.3s ease;
+    }
+
+    .post-link:hover {
+        color: #9c27b0 !important;
+    }
+
+    .text-purple {
+        color: #9c27b0;
+    }
+
+    .empty-state {
+        animation: fadeIn 0.6s ease;
+    }
+
+    .empty-icon {
+        font-size: 5rem;
+        color: #9c27b0;
+        opacity: 0.2;
+        animation: pulse 2s ease-in-out infinite;
+    }
+
+    /* Плавающая кнопка действий (FAB) */
+    .fab-container {
+        position: fixed;
+        bottom: 30px;
+        right: 30px;
+        z-index: 1000;
+    }
+
+    .fab-main {
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #9c27b0 0%, #6a1b9a 100%);
+        border: none;
+        color: #fff;
+        font-size: 1.5rem;
+        box-shadow: 0 8px 25px rgba(156, 39, 176, 0.4);
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .fab-main:hover {
+        transform: scale(1.1) rotate(90deg);
+        box-shadow: 0 12px 35px rgba(156, 39, 176, 0.6);
+    }
+
+    .fab-main.active {
+        transform: rotate(45deg);
+    }
+
+    .fab-menu {
+        position: absolute;
+        bottom: 80px;
+        right: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(20px);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .fab-menu.show {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+    }
+
+    .fab-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 20px;
+        background: white;
+        border-radius: 30px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        text-decoration: none;
+        color: #333;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        white-space: nowrap;
+    }
+
+    .fab-item:hover {
+        background: linear-gradient(135deg, #9c27b0 0%, #6a1b9a 100%);
+        color: #fff;
+        transform: translateX(-5px);
+        box-shadow: 0 6px 20px rgba(156, 39, 176, 0.4);
+    }
+
+    .fab-item i {
+        font-size: 1.2rem;
+    }
+
+    @media (max-width: 768px) {
+        .hero-section {
+            padding: 2rem 0;
+        }
+        
+        .hero-section h1 {
+            font-size: 2rem;
+        }
+
+        .fab-container {
+            bottom: 20px;
+            right: 20px;
+        }
+
+        .fab-main {
+            width: 55px;
+            height: 55px;
+            font-size: 1.3rem;
+        }
+
+        .fab-item span {
+            display: none;
+        }
+
+        .fab-item {
+            width: 55px;
+            height: 55px;
+            border-radius: 50%;
+            padding: 0;
+            justify-content: center;
+        }
+    }
+</style>
+
+<script>
+    function clearSearch() {
+        document.getElementById('searchInput').value = '';
+        window.location.href = '{{ url_for("index", sort=current_sort) }}';
+    }
+
+    function sharePost(postId) {
+        const url = window.location.origin + '{{ url_for("post", post_id=0) }}'.replace('0', postId);
+        if (navigator.share) {
+            navigator.share({
+                title: 'Посмотри этот пост!',
+                url: url
+            }).then(() => {
+                showToast('Поделились успешно!', 'success');
+            }).catch(() => {
+                showToast('Отменено', 'info');
+            });
+        } else {
+            copyToClipboard(url);
+        }
+    }
+
+    function copyLink(postId) {
+        const url = window.location.origin + '{{ url_for("post", post_id=0) }}'.replace('0', postId);
+        copyToClipboard(url);
+    }
+
+    function showToast(message, type = 'success') {
+        const toast = document.createElement('div');
+        toast.className = 'toast-notification';
+        
+        const icons = {
+            success: 'bi-check-circle-fill',
+            error: 'bi-x-circle-fill',
+            info: 'bi-info-circle-fill'
+        };
+        
+        toast.innerHTML = `
+            <i class="bi ${icons[type] || icons.success} me-2"></i>
+            <span>${message}</span>
+        `;
+        
+        const colors = {
+            success: 'linear-gradient(135deg, #9c27b0 0%, #6a1b9a 100%)',
+            error: 'linear-gradient(135deg, #dc3545 0%, #c82333 100%)',
+            info: 'linear-gradient(135deg, #17a2b8 0%, #138496 100%)'
+        };
+        
+        toast.style.cssText = `
+            position: fixed;
+            bottom: 100px;
+            right: 30px;
+            background: ${colors[type] || colors.success};
+            color: white;
+            padding: 1rem 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(156, 39, 176, 0.4);
+            z-index: 10000;
+            animation: slideUp 0.3s ease;
+            display: flex;
+            align-items: center;
+            font-weight: 500;
+            max-width: 300px;
+        `;
+        
+        document.body.appendChild(toast);
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateX(100px)';
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+
+    // Улучшенная обработка ошибок копирования
+    function copyToClipboard(text) {
+        navigator.clipboard.writeText(text).then(() => {
+            showToast('Скопировано!', 'success');
+        }).catch(() => {
+            showToast('Ошибка копирования', 'error');
+        });
+    }
+
+    // Автозакрытие фильтров на мобильных после применения
+    if (window.innerWidth < 768) {
+        document.getElementById('filterForm')?.addEventListener('submit', function() {
+            setTimeout(() => {
+                const collapse = document.getElementById('filtersCollapse');
+                if (collapse) {
+                    const bsCollapse = new bootstrap.Collapse(collapse, {toggle: false});
+                    bsCollapse.hide();
+                }
+            }, 500);
+        });
+    }
+
+    // Плавающая кнопка действий
+    function toggleFAB() {
+        const fabMenu = document.querySelector('.fab-menu');
+        const fabMain = document.querySelector('.fab-main');
+        fabMenu.classList.toggle('show');
+        fabMain.classList.toggle('active');
+    }
+
+    // Закрытие FAB при клике вне его
+    document.addEventListener('click', function(e) {
+        const fabContainer = document.querySelector('.fab-container');
+        if (fabContainer && !fabContainer.contains(e.target)) {
+            const fabMenu = document.querySelector('.fab-menu');
+            const fabMain = document.querySelector('.fab-main');
+            if (fabMenu && fabMenu.classList.contains('show')) {
+                fabMenu.classList.remove('show');
+                fabMain.classList.remove('active');
+            }
+        }
+    });
+
+    // Плавное появление постов при скролле
+    const postObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.style.opacity = '1';
+                entry.target.style.transform = 'translateY(0)';
+                entry.target.classList.add('animate-in');
+            }
+        });
+    }, { threshold: 0.1 });
+
+    document.querySelectorAll('.post-card').forEach((card, index) => {
+        card.style.opacity = '0';
+        card.style.transform = 'translateY(30px)';
+        card.style.transition = `opacity 0.6s ease ${index * 0.1}s, transform 0.6s ease ${index * 0.1}s`;
+        postObserver.observe(card);
+    });
+
+    // Эффект параллакса для героя
+    const heroSection = document.querySelector('.hero-section');
+    if (heroSection) {
+        window.addEventListener('scroll', () => {
+            const scrolled = window.pageYOffset;
+            if (scrolled < heroSection.offsetHeight) {
+                heroSection.style.transform = `translateY(${scrolled * 0.5}px)`;
+                heroSection.style.opacity = 1 - (scrolled / heroSection.offsetHeight) * 0.5;
+            }
+        });
+    }
+
+    // Улучшенная обработка поиска с debounce
+    let searchTimeout;
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            clearTimeout(searchTimeout);
+            // Можно добавить автодополнение здесь
+        });
+    }
+
+    // Анимация при наведении на карточки
+    document.querySelectorAll('.post-card').forEach(card => {
+        card.addEventListener('mouseenter', function() {
+            this.style.transform = 'translateY(-8px) scale(1.01)';
+        });
+        
+        card.addEventListener('mouseleave', function() {
+            this.style.transform = 'translateY(0) scale(1)';
+        });
+    });
+
+    // Добавляем класс для анимации при загрузке
+    document.addEventListener('DOMContentLoaded', function() {
+        document.body.classList.add('loaded');
+    });
+</script>
+
+<style>
+    .animate-in {
+        animation: cardSlideIn 0.6s ease-out;
+    }
+
+    @keyframes cardSlideIn {
+        from {
+            opacity: 0;
+            transform: translateY(30px) scale(0.95);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+    }
+
+    body.loaded .hero-section {
+        animation: heroFadeIn 1s ease-out;
+    }
+
+    @keyframes heroFadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(-20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+</style>
+{% endif %}
+{% endblock %}

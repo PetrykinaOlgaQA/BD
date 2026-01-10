@@ -1,0 +1,466 @@
+{% extends "base.html" %}
+
+{% block title %}Регистрация - Форум{% endblock %}
+
+{% block content %}
+{% if theme == 'old' %}
+    {% include 'register_old.html' %}
+{% else %}
+<div class="auth-container">
+    <div class="row justify-content-center align-items-center min-vh-75">
+        <div class="col-lg-6 col-md-8 col-sm-10">
+            <div class="auth-card card shadow-lg border-0">
+                <div class="card-body p-5">
+                    <div class="text-center mb-4">
+                        <div class="auth-icon mb-3">
+                            <i class="bi bi-person-plus"></i>
+                        </div>
+                        <h2 class="fw-bold mb-2">Создать аккаунт</h2>
+                        <p class="text-muted">Присоединяйтесь к нашему сообществу</p>
+                    </div>
+
+                    <form method="POST" id="registerForm" class="needs-validation" novalidate>
+                        <div class="form-floating mb-3">
+                            <input
+                                type="text"
+                                class="form-control"
+                                id="username"
+                                name="username"
+                                placeholder="Имя пользователя"
+                                required
+                                minlength="3"
+                                maxlength="50"
+                                pattern="[a-zA-Zа-яА-Я0-9_]+"
+                                autocomplete="username"
+                            >
+                            <label for="username">
+                                <i class="bi bi-person me-2"></i>Имя пользователя
+                            </label>
+                            <div class="invalid-feedback">
+                                Имя пользователя должно содержать от 3 до 50 символов (буквы, цифры, _).
+                            </div>
+                            <div class="valid-feedback">
+                                Отлично!
+                            </div>
+                        </div>
+
+                        <div class="form-floating mb-3">
+                            <input
+                                type="email"
+                                class="form-control"
+                                id="email"
+                                name="email"
+                                placeholder="name@example.com"
+                                required
+                                autocomplete="email"
+                            >
+                            <label for="email">
+                                <i class="bi bi-envelope me-2"></i>Email адрес
+                            </label>
+                            <div class="invalid-feedback">
+                                Пожалуйста, введите корректный email адрес.
+                            </div>
+                            <div class="valid-feedback">
+                                Отлично!
+                            </div>
+                        </div>
+
+                        <div class="form-floating mb-3 position-relative">
+                            <input
+                                type="password"
+                                class="form-control"
+                                id="password"
+                                name="password"
+                                placeholder="Пароль"
+                                required
+                                minlength="6"
+                                autocomplete="new-password"
+                                style="padding-right: 3rem;"
+                            >
+                            <label for="password">
+                                <i class="bi bi-lock me-2"></i>Пароль
+                            </label>
+                            <button type="button" class="password-toggle-btn" onclick="togglePassword('password')">
+                                <i class="bi bi-eye" id="passwordToggleIcon"></i>
+                            </button>
+                            <div class="invalid-feedback">
+                                Пароль должен содержать минимум 6 символов.
+                            </div>
+                            <div class="valid-feedback">
+                                Отлично!
+                            </div>
+                            <div class="password-strength mt-2">
+                                <div class="progress" style="height: 4px;">
+                                    <div class="progress-bar" id="passwordStrength" role="progressbar" style="width: 0%"></div>
+                                </div>
+                                <small class="text-muted" id="passwordStrengthText">Введите пароль</small>
+                            </div>
+                        </div>
+
+                        <div class="form-floating mb-3 position-relative">
+                            <input
+                                type="password"
+                                class="form-control"
+                                id="confirmPassword"
+                                name="confirmPassword"
+                                placeholder="Подтвердите пароль"
+                                required
+                                autocomplete="new-password"
+                                style="padding-right: 3rem;"
+                            >
+                            <label for="confirmPassword">
+                                <i class="bi bi-lock-fill me-2"></i>Подтвердите пароль
+                            </label>
+                            <button type="button" class="password-toggle-btn" onclick="togglePassword('confirmPassword')">
+                                <i class="bi bi-eye" id="confirmPasswordToggleIcon"></i>
+                            </button>
+                            <div class="invalid-feedback" id="confirmPasswordFeedback">
+                                Пароли не совпадают.
+                            </div>
+                            <div class="valid-feedback">
+                                Пароли совпадают!
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-light register-btn w-100 mb-3 d-flex align-items-center justify-content-center">
+                            <i class="bi bi-person-plus me-2"></i>
+                            <span class="btn-text">Зарегистрироваться</span>
+                        </button>
+
+                        <div class="text-center">
+                            <p class="mb-0 text-muted">
+                                Уже есть аккаунт?
+                                <a href="{{ url_for('login') }}" class="text-decoration-none fw-bold">
+                                    Войдите
+                                </a>
+                            </p>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="text-center mt-4">
+                <a href="{{ url_for('index') }}" class="text-decoration-none text-muted">
+                    <i class="bi bi-arrow-left me-1"></i>Вернуться на главную
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .auth-container {
+        min-height: calc(100vh - 200px);
+        padding: 3rem 0;
+        position: relative;
+    }
+
+    .auth-container::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background:
+            radial-gradient(circle at 20% 30%, rgba(156, 39, 176, 0.1) 0%, transparent 50%),
+            radial-gradient(circle at 80% 70%, rgba(156, 39, 176, 0.1) 0%, transparent 50%);
+        pointer-events: none;
+    }
+
+    .auth-card {
+        border-radius: 24px;
+        overflow: hidden;
+        background: white;
+        animation: slideUp 0.6s ease-out;
+        box-shadow: 0 20px 60px rgba(156, 39, 176, 0.2);
+        border: 1px solid rgba(156, 39, 176, 0.1);
+        position: relative;
+        z-index: 1;
+    }
+
+    .auth-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 4px;
+        background: linear-gradient(90deg, #9c27b0, #6a1b9a, #9c27b0);
+        background-size: 200% 100%;
+        animation: shimmer 3s linear infinite;
+    }
+
+    @keyframes slideUp {
+        from {
+            opacity: 0;
+            transform: translateY(40px) scale(0.95);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+    }
+
+    @keyframes shimmer {
+        0% { background-position: -200% 0; }
+        100% { background-position: 200% 0; }
+    }
+
+    .auth-icon {
+        width: 100px;
+        height: 100px;
+        margin: 0 auto;
+        background: linear-gradient(135deg, #9c27b0 0%, #6a1b9a 100%);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        font-size: 3rem;
+        box-shadow: 0 8px 30px rgba(156, 39, 176, 0.4);
+        position: relative;
+        animation: pulse 2s ease-in-out infinite;
+    }
+
+    .auth-icon::after {
+        content: '';
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        border: 3px solid rgba(156, 39, 176, 0.3);
+        animation: ripple 2s ease-out infinite;
+    }
+
+    @keyframes ripple {
+        0% {
+            transform: scale(1);
+            opacity: 1;
+        }
+        100% {
+            transform: scale(1.5);
+            opacity: 0;
+        }
+    }
+
+    .form-floating {
+        position: relative;
+    }
+
+    .form-floating > label {
+        padding-left: 2.5rem;
+        color: #6c757d;
+        transition: all 0.3s ease;
+    }
+
+    .form-floating > .form-control {
+        padding-left: 2.5rem;
+        border-radius: 12px;
+        border: 2px solid #e0e0e0;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        background: #fafafa;
+    }
+
+    .form-floating > .form-control:focus {
+        border-color: #9c27b0;
+        box-shadow: 0 0 0 0.2rem rgba(156, 39, 176, 0.15);
+        background: #fff;
+        transform: translateY(-2px);
+    }
+
+    .form-floating > .form-control:focus ~ label {
+        color: #9c27b0;
+    }
+
+    .password-strength {
+        margin-top: 0.5rem;
+    }
+
+    .password-strength .progress {
+        background-color: #e9ecef;
+        border-radius: 10px;
+        height: 6px;
+        overflow: hidden;
+    }
+
+    .password-strength .progress-bar {
+        transition: width 0.3s ease, background-color 0.3s ease;
+        border-radius: 10px;
+    }
+
+    .form-floating.position-relative {
+        position: relative;
+    }
+
+    .password-toggle-btn {
+  position: absolute;
+  right: 10px;
+  z-index: 10;
+  background: transparent;
+  border: none;
+  color: #6c757d;
+  font-size: 1.25rem;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+  height: 100%;
+  width: auto;
+}
+
+    .password-toggle-btn:hover {
+        color: #9c27b0;
+        transform: translateY(-50%) scale(1.1);
+    }
+
+    .password-toggle-btn:focus {
+        outline: none;
+        box-shadow: none;
+    }
+
+    .password-toggle-btn i {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 1;
+    }
+
+    /* Убеждаемся что input имеет правильный padding справа */
+    .form-floating > .form-control[style*="padding-right"] {
+        padding-right: 3rem !important;
+    }
+
+    .register-btn {
+        background: linear-gradient(135deg, #9c27b0 0%, #6a1b9a 100%);
+        color: #fff;
+        border: none;
+        border-radius: 12px;
+        font-weight: 600;
+        padding: 0.75rem 2rem;
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 4px 15px rgba(156, 39, 176, 0.3);
+    }
+
+    .register-btn::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 0;
+        height: 0;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.3);
+        transform: translate(-50%, -50%);
+        transition: width 0.6s, height 0.6s;
+    }
+
+    .register-btn:hover::before {
+        width: 400px;
+        height: 400px;
+    }
+
+    .register-btn:hover {
+        transform: translateY(-3px) scale(1.02);
+        box-shadow: 0 8px 25px rgba(156, 39, 176, 0.5);
+        background: linear-gradient(135deg, #ab47bc 0%, #8e24aa 100%);
+    }
+
+    .register-btn:active {
+        transform: translateY(-1px) scale(0.98);
+    }
+
+    .was-validated .form-control:invalid:focus {
+        border-color: #dc3545;
+        box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.25);
+    }
+
+    .was-validated .form-control:valid:focus {
+        border-color: #9c27b0;
+        box-shadow: 0 0 0 0.2rem rgba(156, 39, 176, 0.25);
+    }
+</style>
+
+<script>
+    function togglePassword(inputId) {
+        const input = document.getElementById(inputId);
+        const icon = document.getElementById(inputId + 'ToggleIcon');
+        if (input.type === 'password') {
+            input.type = 'text';
+            icon.classList.remove('bi-eye');
+            icon.classList.add('bi-eye-slash');
+        } else {
+            input.type = 'password';
+            icon.classList.remove('bi-eye-slash');
+            icon.classList.add('bi-eye');
+        }
+    }
+
+    function checkPasswordStrength(password) {
+        let strength = 0;
+        if (password.length >= 6) strength++;
+        if (password.length >= 8) strength++;
+        if (/[a-z]/.test(password) && /[A-Z]/.test(password)) strength++;
+        if (/[0-9]/.test(password)) strength++;
+        if (/[^a-zA-Z0-9]/.test(password)) strength++;
+
+        const strengthBar = document.getElementById('passwordStrength');
+        const strengthTextEl = document.getElementById('passwordStrengthText');
+        let width, color, text;
+
+        if (strength <= 1) {
+            width = '25%'; color = '#dc3545'; text = 'Слабый пароль';
+        } else if (strength <= 2) {
+            width = '50%'; color = '#ff9800'; text = 'Средний пароль';
+        } else if (strength <= 3) {
+            width = '75%'; color = '#ffc107'; text = 'Хороший пароль';
+        } else {
+            width = '100%'; color = '#4caf50'; text = 'Отличный пароль';
+        }
+
+        strengthBar.style.width = width;
+        strengthBar.style.backgroundColor = color;
+        strengthTextEl.textContent = text;
+        strengthTextEl.style.color = color;
+    }
+
+    (function() {
+        'use strict';
+        const form = document.getElementById('registerForm');
+        const password = document.getElementById('password');
+        const confirmPassword = document.getElementById('confirmPassword');
+
+        password.addEventListener('input', () => {
+            checkPasswordStrength(password.value);
+        });
+
+        function validatePasswordMatch() {
+            if (confirmPassword.value && password.value !== confirmPassword.value) {
+                confirmPassword.setCustomValidity('Пароли не совпадают');
+                confirmPassword.classList.add('is-invalid');
+                confirmPassword.classList.remove('is-valid');
+            } else {
+                confirmPassword.setCustomValidity('');
+                confirmPassword.classList.remove('is-invalid');
+                confirmPassword.classList.add('is-valid');
+            }
+        }
+
+        password.addEventListener('input', validatePasswordMatch);
+        confirmPassword.addEventListener('input', validatePasswordMatch);
+
+        form.addEventListener('submit', function(event) {
+            if (!form.checkValidity()) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            form.classList.add('was-validated');
+        }, false);
+    })();
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Форум{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    {% if theme == 'new' %}
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    {% endif %}
+    <style>
+        {% if theme == 'old' %}
+        /* Старый простой дизайн */
+        .auth-links, .action-links {
+            display: flex !important;
+            flex-direction: row !important;
+            align-items: center !important;
+            gap: 8px !important;
+            flex-wrap: nowrap !important;
+        }
+        .auth-links .nav-link,
+        .auth-links .text-divider {
+            padding: 0.25rem 0.5rem !important;
+            white-space: nowrap;
+        }
+        {% else %}
+        /* ========== МЕГА КРУТОЙ ФИОЛЕТОВЫЙ ДИЗАЙН ========== */
+        :root {
+            --purple-primary: #9c27b0;
+            --purple-dark: #6a1b9a;
+            --purple-light: #ba68c8;
+            --purple-lighter: #e1bee7;
+            --purple-gradient: linear-gradient(135deg, #9c27b0 0%, #6a1b9a 50%, #7b1fa2 100%);
+            --purple-gradient-hover: linear-gradient(135deg, #ab47bc 0%, #8e24aa 50%, #9c27b0 100%);
+            --shadow-purple: 0 8px 32px rgba(156, 39, 176, 0.3);
+            --shadow-purple-hover: 0 12px 48px rgba(156, 39, 176, 0.5);
+        }
+
+        * {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            background: linear-gradient(180deg, #faf5ff 0%, #ffffff 100%);
+            min-height: 100vh;
+            position: relative;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 20% 50%, rgba(156, 39, 176, 0.05) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(156, 39, 176, 0.05) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Лоадер между страницами */
+        #page-loader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            z-index: 9999;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+        }
+
+        #page-loader.active {
+            display: flex;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .loader-spinner {
+            width: 60px;
+            height: 60px;
+            border: 4px solid #f3e5f5;
+            border-top: 4px solid var(--purple-primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        .loader-text {
+            margin-top: 20px;
+            color: var(--purple-primary);
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        @keyframes shimmer {
+            0% { background-position: -1000px 0; }
+            100% { background-position: 1000px 0; }
+        }
+
+        /* Навбар */
+        .navbar {
+            background: var(--purple-gradient) !important;
+            box-shadow: 0 4px 20px rgba(156, 39, 176, 0.2);
+            backdrop-filter: blur(10px);
+            padding: 1rem 0;
+            transition: all 0.3s ease;
+        }
+
+        .navbar.scrolled {
+            box-shadow: 0 2px 10px rgba(156, 39, 176, 0.3);
+            padding: 0.5rem 0;
+        }
+
+        .navbar-brand {
+            font-weight: 800;
+            font-size: 1.6rem;
+            background: linear-gradient(45deg, #fff, #e1bee7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            transition: all 0.3s ease;
+            text-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+        }
+
+        .navbar-brand:hover {
+            transform: scale(1.05);
+            filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.5));
+        }
+
+        .nav-link {
+            transition: all 0.3s ease;
+            position: relative;
+            padding: 0.5rem 1rem !important;
+            border-radius: 8px;
+        }
+
+        .nav-link::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            width: 0;
+            height: 2px;
+            background: #fff;
+            transition: all 0.3s ease;
+            transform: translateX(-50%);
+        }
+
+        .nav-link:hover::after {
+            width: 80%;
+        }
+
+        .nav-link:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-2px);
+        }
+
+        /* Кнопки */
+        .btn-primary,
+        .btn-outline-primary,
+        .btn-success,
+        .btn-danger,
+        .btn-secondary,
+        /* Общее центрирование для всех кнопок */
+        .btn,
+        .btn-primary,
+        .btn-outline-primary,
+        .btn-success,
+        .btn-danger,
+        .btn-secondary,
+        .btn-light,
+        .btn-outline-light,
+        .btn-outline-secondary,
+        .btn-outline-danger {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            vertical-align: middle;
+        }
+
+        .btn i,
+        .btn-primary i,
+        .btn-outline-primary i {
+            display: inline-flex;
+            align-items: center;
+            line-height: 1;
+        }
+
+        .btn-primary {
+            background: var(--purple-gradient);
+            border: none;
+            color: #fff;
+            font-weight: 600;
+            padding: 0.6rem 1.5rem;
+            border-radius: 12px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 15px rgba(156, 39, 176, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-primary::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+
+        .btn-primary:hover::before {
+            width: 300px;
+            height: 300px;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-3px) scale(1.02);
+            box-shadow: var(--shadow-purple-hover);
+            background: var(--purple-gradient-hover);
+        }
+
+        .btn-primary:active {
+            transform: translateY(-1px) scale(0.98);
+        }
+
+        .btn-outline-primary {
+            border: 2px solid var(--purple-primary);
+            color: var(--purple-primary);
+            background: transparent;
+            font-weight: 600;
+            border-radius: 12px;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+
+        .btn-outline-primary:hover {
+            background: var(--purple-gradient);
+            color: #fff;
+            border-color: transparent;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(156, 39, 176, 0.4);
+        }
+
+        /* Карточки */
+        .card {
+            border: none;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            background: #fff;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--purple-gradient);
+            transform: scaleY(0);
+            transition: transform 0.3s ease;
+        }
+
+        .card:hover::before {
+            transform: scaleY(1);
+        }
+
+        .card:hover {
+            transform: translateY(-8px) scale(1.01);
+            box-shadow: var(--shadow-purple);
+        }
+
+        .post-card {
+            border-left: 4px solid var(--purple-primary);
+            animation: slideUp 0.5s ease-out;
+            animation-fill-mode: both;
+        }
+
+        .post-card:nth-child(1) { animation-delay: 0.1s; }
+        .post-card:nth-child(2) { animation-delay: 0.2s; }
+        .post-card:nth-child(3) { animation-delay: 0.3s; }
+        .post-card:nth-child(4) { animation-delay: 0.4s; }
+        .post-card:nth-child(5) { animation-delay: 0.5s; }
+
+        /* Бейджи */
+        .badge {
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .badge.bg-primary {
+            background: var(--purple-gradient) !important;
+            color: #fff;
+            box-shadow: 0 2px 8px rgba(156, 39, 176, 0.3);
+        }
+
+        .badge:hover {
+            transform: scale(1.1);
+            box-shadow: 0 4px 12px rgba(156, 39, 176, 0.4);
+        }
+
+        /* Формы */
+        .form-control, .form-select {
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 0.75rem 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .form-control:focus, .form-select:focus {
+            border-color: var(--purple-primary);
+            box-shadow: 0 0 0 0.2rem rgba(156, 39, 176, 0.15);
+            transform: translateY(-2px);
+        }
+
+        /* Пагинация */
+        .pagination .page-link {
+            border-radius: 10px;
+            margin: 0 4px;
+            border: 2px solid #e0e0e0;
+            color: var(--purple-primary);
+            transition: all 0.3s ease;
+        }
+
+        .pagination .page-link:hover {
+            background: var(--purple-gradient);
+            color: #fff;
+            border-color: var(--purple-primary);
+            transform: translateY(-2px);
+        }
+
+        .pagination .page-item.active .page-link {
+            background: var(--purple-gradient);
+            border-color: var(--purple-primary);
+            color: #fff;
+            box-shadow: 0 4px 12px rgba(156, 39, 176, 0.4);
+        }
+
+        /* Плавающая кнопка "Наверх" */
+        #scrollToTop {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 50px;
+            height: 50px;
+            background: var(--purple-gradient);
+            color: #fff;
+            border: none;
+            border-radius: 50%;
+            box-shadow: var(--shadow-purple);
+            cursor: pointer;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+        }
+
+        #scrollToTop.show {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        #scrollToTop:hover {
+            transform: translateY(-5px) scale(1.1);
+            box-shadow: var(--shadow-purple-hover);
+        }
+
+        /* Алерты */
+        .alert {
+            border-radius: 12px;
+            border: none;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            animation: slideUp 0.4s ease;
+        }
+
+        .alert-enhanced {
+            border-left: 4px solid;
+            padding: 1rem 1.25rem;
+        }
+
+        .alert-success {
+            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+            border-left-color: #28a745;
+            color: #155724;
+        }
+
+        .alert-danger {
+            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+            border-left-color: #dc3545;
+            color: #721c24;
+        }
+
+        .alert-info {
+            background: linear-gradient(135deg, #d1ecf1 0%, #bee5eb 100%);
+            border-left-color: #17a2b8;
+            color: #0c5460;
+        }
+
+        .alert-warning {
+            background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+            border-left-color: #ffc107;
+            color: #856404;
+        }
+
+        /* Адаптивность */
+        @media (max-width: 768px) {
+            .navbar-brand {
+                font-size: 1.2rem;
+            }
+            
+            .card:hover {
+                transform: translateY(-4px);
+            }
+            
+            #scrollToTop {
+                bottom: 20px;
+                right: 20px;
+                width: 45px;
+                height: 45px;
+            }
+
+            .container {
+                padding-left: 1rem;
+                padding-right: 1rem;
+            }
+
+            .btn {
+                font-size: 0.9rem;
+                padding: 0.5rem 1rem;
+            }
+
+            .card-body {
+                padding: 1rem !important;
+            }
+
+            .navbar-nav {
+                font-size: 0.9rem;
+            }
+        }
+
+        @media (max-width: 576px) {
+            .hero-section h1 {
+                font-size: 1.75rem !important;
+            }
+
+            .hero-section p {
+                font-size: 1rem;
+            }
+
+            .btn-lg {
+                font-size: 1rem;
+                padding: 0.6rem 1.2rem;
+            }
+        }
+
+        /* Темная тема */
+        body.dark-mode {
+            background: linear-gradient(180deg, #1a0a1f 0%, #2d1b3d 100%);
+            color: #fff;
+        }
+
+        body.dark-mode::before {
+            background: 
+                radial-gradient(circle at 20% 50%, rgba(156, 39, 176, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(156, 39, 176, 0.15) 0%, transparent 50%);
+        }
+
+        body.dark-mode .card {
+            background: #2d1b3d;
+            color: #fff;
+            border: 1px solid rgba(156, 39, 176, 0.2);
+        }
+
+        body.dark-mode .card:hover {
+            border-color: rgba(156, 39, 176, 0.4);
+        }
+
+        body.dark-mode .form-control,
+        body.dark-mode .form-select {
+            background: #1a0a1f;
+            border-color: rgba(156, 39, 176, 0.3);
+            color: #fff;
+        }
+
+        body.dark-mode .form-control:focus,
+        body.dark-mode .form-select:focus {
+            background: #2d1b3d;
+            border-color: #9c27b0;
+        }
+
+        body.dark-mode .text-muted {
+            color: #ba68c8 !important;
+        }
+
+        body.dark-mode .navbar {
+            background: linear-gradient(135deg, #6a1b9a 0%, #4a148c 100%) !important;
+        }
+
+        .auth-links, .action-links {
+            display: flex !important;
+            flex-direction: row !important;
+            align-items: center !important;
+            gap: 8px !important;
+            flex-wrap: nowrap !important;
+        }
+        .auth-links .nav-link,
+        .auth-links .text-divider {
+            padding: 0.25rem 0.5rem !important;
+            white-space: nowrap;
+        }
+
+        .bg-gradient-primary {
+            background: var(--purple-gradient);
+        }
+
+        .bg-primary {
+            background-color: var(--purple-primary) !important;
+        }
+
+        .navbar-dark {
+            background: var(--purple-gradient) !important;
+        }
+
+        .navbar-dark .navbar-brand,
+        .navbar-dark .nav-link,
+        .navbar-dark .navbar-text {
+            color: #fff !important;
+        }
+
+        .highlight {
+            background: linear-gradient(120deg, var(--purple-lighter) 0%, #f3e5f5 100%);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+            color: var(--purple-dark);
+            box-shadow: 0 2px 4px rgba(156, 39, 176, 0.2);
+        }
+        {% endif %}
+
+        /* === КНОПКИ ПЕРЕКЛЮЧЕНИЯ ТЕМЫ === */
+        .theme-toggle-btn {
+            background-color: #fff;
+            border: 2px solid;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.25s ease;
+            text-decoration: none !important;
+            padding: 0.25rem 0.75rem !important;
+            font-size: 0.875rem;
+            display: inline-block;
+        }
+
+
+        .theme-toggle-old:hover {
+            background-color: #9c27b0 !important;
+            color: #5f2069 !important;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 6px rgba(156, 39, 176, 0.3);
+        }
+
+        /* Новый дизайн → синяя при наведении */
+        .theme-toggle-new {
+            color: #9c27b0 !important;
+            border-color: #5f2069 !important;
+        }
+        .theme-toggle-new:hover {
+            border-color: #0d6efd !important;
+            border-color: #0d6efd !important;
+            background-color: #0d6efd !important;
+            color: #fff !important;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 6px rgba(13, 110, 253, 0.3);
+        }
+
+        /* Адаптация для мобильных */
+        @media (max-width: 991px) {
+            .action-links {
+                margin-top: 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+<nav class="navbar navbar-expand-lg {% if theme == 'new' %}navbar-dark{% else %}navbar-dark bg-primary{% endif %}">
+    <div class="container">
+        <!-- В шапке -->
+    <a class="navbar-brand" href="/">🔁 Бесконечный Loop</a>
+
+        <!-- Кнопки создания (только для авторизованных) -->
+        {% if user %}
+        <div class="navbar-nav ms-auto me-lg-3 d-flex flex-row flex-lg-row align-items-center gap-2">
+            <a href="{{ url_for('create_topic') }}" class="btn btn-sm btn-outline-light d-none d-lg-inline">
+                <i class="bi bi-tag me-1"></i>Создать тему
+            </a>
+            <a href="{{ url_for('create_post') }}" class="btn btn-sm btn-outline-light d-none d-lg-inline">
+                <i class="bi bi-pencil me-1"></i>Создать пост
+            </a>
+            <!-- Мобильные иконки -->
+            <a href="{{ url_for('create_topic') }}" class="btn btn-sm btn-outline-light d-lg-none" title="Тема">
+                <i class="bi bi-tag"></i>
+            </a>
+            <a href="{{ url_for('create_post') }}" class="btn btn-sm btn-outline-light d-lg-none" title="Пост">
+                <i class="bi bi-pencil"></i>
+            </a>
+        </div>
+        {% endif %}
+
+        <div class="navbar-nav d-flex flex-row align-items-center gap-2">
+            <!-- Кнопка переключения темы -->
+            {% if theme == 'old' %}
+                <a href="{{ url_for('toggle_theme') }}" class="theme-toggle-btn theme-toggle-old">
+                    ✨ Новый дизайн
+                </a>
+            {% else %}
+                <a href="{{ url_for('toggle_theme') }}" class="theme-toggle-btn theme-toggle-new">
+                    🔙 Старый дизайн
+                </a>
+                <!-- Переключатель темной темы -->
+                <button class="btn btn-sm btn-outline-light" onclick="toggleDarkMode()" title="Темная тема">
+                    <i class="bi {% if dark_mode %}bi-sun{% else %}bi-moon{% endif %}"></i>
+                </button>
+            {% endif %}
+
+            <!-- Профиль / Авторизация -->
+            {% if user %}
+                <div class="d-flex align-items-center gap-2">
+                    <span class="navbar-text d-none d-lg-inline">Привет, {{ user.name }}!</span>
+                    <a class="nav-link d-none d-lg-inline" href="{{ url_for('profile') }}">Аккаунт</a>
+                    <a class="nav-link" href="{{ url_for('logout') }}">
+                        <i class="bi bi-box-arrow-right d-lg-none"></i>
+                        <span class="d-none d-lg-inline">Выйти</span>
+                    </a>
+                </div>
+            {% else %}
+                <div class="auth-links d-flex">
+                    <a class="nav-link" href="{{ url_for('login') }}">Войти</a>
+                    <span class="text-divider {% if theme == 'new' %}text-light{% else %}text-white{% endif %}">|</span>
+                    <a class="nav-link" href="{{ url_for('register') }}">Регистрация</a>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</nav>
+
+<div class="container mt-4">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show alert-enhanced" role="alert">
+                    {% if theme == 'new' %}
+                        <div class="d-flex align-items-center">
+                            {% if category == 'success' %}
+                                <i class="bi bi-check-circle-fill me-2" style="font-size: 1.5rem;"></i>
+                            {% elif category == 'danger' or category == 'error' %}
+                                <i class="bi bi-exclamation-triangle-fill me-2" style="font-size: 1.5rem;"></i>
+                            {% elif category == 'info' %}
+                                <i class="bi bi-info-circle-fill me-2" style="font-size: 1.5rem;"></i>
+                            {% else %}
+                                <i class="bi bi-bell-fill me-2" style="font-size: 1.5rem;"></i>
+                            {% endif %}
+                            <div class="flex-grow-1">{{ message }}</div>
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    {% else %}
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+</div>
+
+{% if theme == 'new' %}
+<!-- Лоадер между страницами -->
+<div id="page-loader">
+    <div class="loader-spinner"></div>
+    <div class="loader-text">Загрузка...</div>
+</div>
+
+<!-- Кнопка "Наверх" -->
+<button id="scrollToTop" title="Наверх">
+    <i class="bi bi-arrow-up"></i>
+</button>
+{% endif %}
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+{% if theme == 'new' %}
+<script>
+    // Лоадер при переходах между страницами
+    document.addEventListener('DOMContentLoaded', function() {
+        const loader = document.getElementById('page-loader');
+        const links = document.querySelectorAll('a[href^="/"], a[href^="{{ url_for("index") }}"]');
+        
+        links.forEach(link => {
+            link.addEventListener('click', function(e) {
+                // Не показываем лоадер для внешних ссылок и якорей
+                if (this.hostname === window.location.hostname && !this.hash) {
+                    loader.classList.add('active');
+                }
+            });
+        });
+
+        // Скрываем лоадер после загрузки
+        window.addEventListener('load', function() {
+            setTimeout(() => {
+                loader.classList.remove('active');
+            }, 300);
+        });
+    });
+
+    // Кнопка "Наверх"
+    const scrollToTopBtn = document.getElementById('scrollToTop');
+    
+    window.addEventListener('scroll', function() {
+        if (window.pageYOffset > 300) {
+            scrollToTopBtn.classList.add('show');
+        } else {
+            scrollToTopBtn.classList.remove('show');
+        }
+    });
+
+    scrollToTopBtn.addEventListener('click', function() {
+        window.scrollTo({
+            top: 0,
+            behavior: 'smooth'
+        });
+    });
+
+    // Эффект скролла навбара
+    let lastScroll = 0;
+    const navbar = document.querySelector('.navbar');
+    
+    window.addEventListener('scroll', function() {
+        const currentScroll = window.pageYOffset;
+        
+        if (currentScroll > 100) {
+            navbar.classList.add('scrolled');
+        } else {
+            navbar.classList.remove('scrolled');
+        }
+        
+        lastScroll = currentScroll;
+    });
+
+    // Плавное появление элементов при скролле
+    const observerOptions = {
+        threshold: 0.1,
+        rootMargin: '0px 0px -50px 0px'
+    };
+
+    const observer = new IntersectionObserver(function(entries) {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.style.opacity = '1';
+                entry.target.style.transform = 'translateY(0)';
+            }
+        });
+    }, observerOptions);
+
+    // Применяем к карточкам
+    document.querySelectorAll('.card').forEach(card => {
+        card.style.opacity = '0';
+        card.style.transform = 'translateY(20px)';
+        card.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+        observer.observe(card);
+    });
+
+    // Переключение темной темы
+    function toggleDarkMode() {
+        fetch('{{ url_for("toggle_dark_mode") }}')
+            .then(() => {
+                document.body.classList.toggle('dark-mode');
+                const icon = event.target.closest('button').querySelector('i');
+                if (icon.classList.contains('bi-moon')) {
+                    icon.classList.remove('bi-moon');
+                    icon.classList.add('bi-sun');
+                } else {
+                    icon.classList.remove('bi-sun');
+                    icon.classList.add('bi-moon');
+                }
+            });
+    }
+
+    // Применяем темную тему при загрузке
+    {% if dark_mode %}
+    document.body.classList.add('dark-mode');
+    {% endif %}
+</script>
+{% endif %}
+</body>
+</html>

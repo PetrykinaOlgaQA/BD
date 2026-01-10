@@ -1,0 +1,409 @@
+{% extends "base.html" %}
+
+{% block title %}Вход - Форум{% endblock %}
+
+{% block content %}
+{% if theme == 'old' %}
+    {% include 'login_old.html' %}
+{% else %}
+<div class="auth-container">
+    <div class="row justify-content-center align-items-center min-vh-75">
+        <div class="col-lg-5 col-md-7 col-sm-9">
+            <div class="auth-card card shadow-lg border-0">
+                <div class="card-body p-5">
+                    <div class="text-center mb-4">
+                        <div class="auth-icon mb-3">
+                            <i class="bi bi-person-circle"></i>
+                        </div>
+                        <h2 class="fw-bold mb-2">Добро пожаловать!</h2>
+                        <p class="text-muted">Войдите в свой аккаунт, чтобы продолжить</p>
+                    </div>
+
+                    <form method="POST" id="loginForm" class="needs-validation" novalidate>
+                        <div class="form-floating mb-3">
+                            <input
+                                type="email"
+                                class="form-control"
+                                id="email"
+                                name="email"
+                                placeholder="name@example.com"
+                                required
+                                autocomplete="email"
+                            >
+                            <label for="email">
+                                <i class="bi bi-envelope me-2"></i>Email адрес
+                            </label>
+                            <div class="invalid-feedback">
+                                Пожалуйста, введите корректный email адрес.
+                            </div>
+                        </div>
+
+                        <div class="form-floating mb-3 position-relative">
+                            <input
+                                type="password"
+                                class="form-control"
+                                id="password"
+                                name="password"
+                                placeholder="Пароль"
+                                required
+                                autocomplete="current-password"
+                                style="padding-right: 3rem;"
+                            >
+                            <label for="password">
+                                <i class="bi bi-lock me-2"></i>Пароль
+                            </label>
+                            <div class="invalid-feedback">
+                                Пожалуйста, введите пароль.
+                            </div>
+                            <button type="button" class="password-toggle-btn" onclick="togglePassword('password')">
+                                <i class="bi bi-eye" id="passwordToggleIcon"></i>
+                            </button>
+                        </div>
+
+                        <button type="submit" class="btn btn-light login-btn w-100 mb-3 d-flex align-items-center justify-content-center">
+                            <i class="bi bi-box-arrow-in-right me-2"></i>
+                            <span class="btn-text">Войти</span>
+                        </button>
+
+                        <div class="text-center">
+                            <p class="mb-0 text-muted">
+                                Нет аккаунта?
+                                <a href="{{ url_for('register') }}" class="text-decoration-none fw-bold">
+                                    Зарегистрируйтесь
+                                </a>
+                            </p>
+                        </div>
+                    </form>
+
+
+                    <div class="test-account-card">
+                        <div class="d-flex align-items-center mb-2">
+                            <i class="bi bi-info-circle text-primary me-2"></i>
+                            <small class="fw-bold text-muted">Тестовый аккаунт</small>
+                        </div>
+                        <div class="test-credentials">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <small class="text-muted">Email:</small>
+                                <code class="small" onclick="copyToClipboard('admin@example.com', this)">
+                                    admin@example.com
+                                    <i class="bi bi-clipboard ms-1"></i>
+                                </code>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <small class="text-muted">Пароль:</small>
+                                <code class="small" onclick="copyToClipboard('123456', this)">
+                                    123456
+                                    <i class="bi bi-clipboard ms-1"></i>
+                                </code>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="text-center mt-4">
+                <a href="{{ url_for('index') }}" class="text-decoration-none text-muted">
+                    <i class="bi bi-arrow-left me-1"></i>Вернуться на главную
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .auth-container {
+        min-height: calc(100vh - 200px);
+        padding: 3rem 0;
+        position: relative;
+    }
+
+    .auth-container::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: 
+            radial-gradient(circle at 20% 30%, rgba(156, 39, 176, 0.1) 0%, transparent 50%),
+            radial-gradient(circle at 80% 70%, rgba(156, 39, 176, 0.1) 0%, transparent 50%);
+        pointer-events: none;
+    }
+
+    .auth-card {
+        border-radius: 24px;
+        overflow: hidden;
+        background: white;
+        animation: slideUp 0.6s ease-out;
+        box-shadow: 0 20px 60px rgba(156, 39, 176, 0.2);
+        border: 1px solid rgba(156, 39, 176, 0.1);
+        position: relative;
+        z-index: 1;
+    }
+
+    .auth-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 4px;
+        background: linear-gradient(90deg, #9c27b0, #6a1b9a, #9c27b0);
+        background-size: 200% 100%;
+        animation: shimmer 3s linear infinite;
+    }
+
+    @keyframes slideUp {
+        from {
+            opacity: 0;
+            transform: translateY(40px) scale(0.95);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+    }
+
+    @keyframes shimmer {
+        0% { background-position: -200% 0; }
+        100% { background-position: 200% 0; }
+    }
+
+    .auth-icon {
+        width: 100px;
+        height: 100px;
+        margin: 0 auto;
+        background: linear-gradient(135deg, #9c27b0 0%, #6a1b9a 100%);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        font-size: 3rem;
+        box-shadow: 0 8px 30px rgba(156, 39, 176, 0.4);
+        position: relative;
+        animation: pulse 2s ease-in-out infinite;
+    }
+
+    .auth-icon::after {
+        content: '';
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        border: 3px solid rgba(156, 39, 176, 0.3);
+        animation: ripple 2s ease-out infinite;
+    }
+
+    @keyframes ripple {
+        0% {
+            transform: scale(1);
+            opacity: 1;
+        }
+        100% {
+            transform: scale(1.5);
+            opacity: 0;
+        }
+    }
+
+    .form-floating {
+        position: relative;
+    }
+
+    .form-floating > label {
+        color: #6c757d;
+        transition: all 0.3s ease;
+    }
+
+    .form-floating > .form-control {
+        border-radius: 12px;
+        border: 2px solid #e0e0e0;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        background: #fafafa;
+    }
+
+    .form-floating > .form-control:focus {
+        border-color: #9c27b0;
+        box-shadow: 0 0 0 0.2rem rgba(156, 39, 176, 0.15);
+        background: #fff;
+        transform: translateY(-2px);
+    }
+
+    .form-floating > .form-control:focus ~ label {
+        color: #9c27b0;
+    }
+
+    .form-floating.position-relative {
+        position: relative;
+    }
+
+    .password-toggle-btn {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 10;
+        background: transparent;
+        border: none;
+        color: #6c757d;
+        font-size: 1.25rem;
+        padding: 0.25rem 0.5rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.3s ease;
+        width: auto;
+        height: auto;
+        line-height: 1;
+    }
+
+    .password-toggle-btn:hover {
+        color: #9c27b0;
+        transform: translateY(-50%) scale(1.1);
+    }
+
+    .password-toggle-btn:focus {
+        outline: none;
+        box-shadow: none;
+    }
+
+    .password-toggle-btn i {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 1;
+    }
+
+    /* Убеждаемся что input имеет правильный padding справа */
+    .form-floating > .form-control[style*="padding-right"] {
+        padding-right: 3rem !important;
+    }
+
+    .login-btn {
+        background: linear-gradient(135deg, #9c27b0 0%, #6a1b9a 100%);
+        color: #fff;
+        border: none;
+        border-radius: 12px;
+        font-weight: 600;
+        padding: 0.75rem 2rem;
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 4px 15px rgba(156, 39, 176, 0.3);
+    }
+
+    .login-btn::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 0;
+        height: 0;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.3);
+        transform: translate(-50%, -50%);
+        transition: width 0.6s, height 0.6s;
+    }
+
+    .login-btn:hover::before {
+        width: 400px;
+        height: 400px;
+    }
+
+    .login-btn:hover {
+        transform: translateY(-3px) scale(1.02);
+        box-shadow: 0 8px 25px rgba(156, 39, 176, 0.5);
+        background: linear-gradient(135deg, #ab47bc 0%, #8e24aa 100%);
+    }
+
+    .login-btn:active {
+        transform: translateY(-1px) scale(0.98);
+    }
+
+    .divider::before {
+        background: #e9ecef;
+    }
+
+    .divider-text {
+        background: white;
+        color: #6c757d;
+    }
+
+    .test-account-card {
+        background: linear-gradient(135deg, #f3e5f5 0%, #e1bee7 100%);
+        border-radius: 12px;
+        padding: 1.25rem;
+        border-left: 4px solid #9c27b0;
+        transition: all 0.3s ease;
+    }
+
+    .test-account-card:hover {
+        transform: translateX(5px);
+        box-shadow: 0 4px 15px rgba(156, 39, 176, 0.2);
+    }
+
+    .test-credentials code {
+        cursor: pointer;
+        user-select: all;
+        transition: all 0.3s ease;
+        padding: 0.25rem 0.5rem;
+        border-radius: 6px;
+        background: rgba(156, 39, 176, 0.1);
+    }
+
+    .test-credentials code:hover {
+        color: #6a1b9a;
+        background: rgba(156, 39, 176, 0.2);
+        transform: scale(1.05);
+    }
+</style>
+
+<script>
+    function togglePassword(inputId) {
+        const input = document.getElementById(inputId);
+        const icon = document.getElementById(inputId + 'ToggleIcon');
+        if (input.type === 'password') {
+            input.type = 'text';
+            icon.classList.remove('bi-eye');
+            icon.classList.add('bi-eye-slash');
+        } else {
+            input.type = 'password';
+            icon.classList.remove('bi-eye-slash');
+            icon.classList.add('bi-eye');
+        }
+    }
+
+    function copyToClipboard(text, element) {
+        navigator.clipboard.writeText(text).then(() => {
+            const icon = element.querySelector('i');
+            const originalClass = icon.className;
+            icon.className = 'bi bi-check text-success ms-1';
+            setTimeout(() => {
+                icon.className = originalClass;
+            }, 2000);
+        });
+    }
+
+    (function() {
+        'use strict';
+        const form = document.getElementById('loginForm');
+        form.addEventListener('submit', function(event) {
+            if (!form.checkValidity()) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            form.classList.add('was-validated');
+        }, false);
+    })();
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('test') === '1') {
+            document.getElementById('email').value = 'admin@example.com';
+            document.getElementById('password').value = '123456';
+        }
+    });
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>✏️ Редактировать комментарий</h2>
+<form method="POST">
+    <div class="mb-3">
+        <textarea name="content" class="form-control" rows="4" required>{{ comment.content }}</textarea>
+    </div>
+    <button type="submit" class="btn btn-primary">Сохранить</button>
+    <a href="{{ url_for('post', post_id=comment.post_id) }}" class="btn btn-secondary">Отмена</a>
+</form>
+{% endblock %}

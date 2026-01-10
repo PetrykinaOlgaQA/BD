@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block title %}Ошибка - Форум{% endblock %}
+
+{% block content %}
+<div class="alert alert-danger">
+    <h4 class="alert-heading">{{ error_title }}</h4>
+    <p>{{ error_message }}</p>
+    <hr>
+    <p class="mb-0">
+        <a href="{{ url_for('index') }}" class="btn btn-primary">Вернуться на главную</a>
+    </p>
+</div>
+{% endblock %}

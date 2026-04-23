@@ -1,0 +1,16 @@
+
+============================================================
+2026-04-23T18:21:51Z
+Реал: https://chat.qwen.ai/
+Локалка: https://chat.qwen.ai/
+STATUS: FAIL
+Скрин реала: C:\Users\petry\OneDrive\Desktop\6 семестр\Диплом\нейросеть\shots\real_1776968352907.png
+Скрин локалки: C:\Users\petry\OneDrive\Desktop\6 семестр\Диплом\нейросеть\shots\local_1776968352907.png
+Diff: C:\Users\petry\OneDrive\Desktop\6 семестр\Диплом\нейросеть\shots\diffs\dual_local_1776968352907.png
+MSE: 0.762767
+Пиксели (итог): 97.562%
+Raw / shift: 98.056% / 97.805%
+Сдвиг px: 2, opening: 1
+Gemma:
+[Gemma/Ollama недоступна: HTTPConnectionPool(host='127.0.0.1', port=11434): Read timed out. (read timeout=120)]
+Итог: локалка визуально расходится с реалом сверх порога.

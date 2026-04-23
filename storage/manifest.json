@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "screens": {
+    "demo": {
+      "design_png": "shots/baseline.png",
+      "live_url": "https://example.com"
+    }
+  }
+}

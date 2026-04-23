@@ -1,0 +1,14 @@
+{
+  "url_real": "https://example.com",
+  "url_local": "http://127.0.0.1:5173",
+  "tolerance_shift_px": 2,
+  "tolerance_speckle_iter": 1,
+  "pixel_threshold": 30,
+  "diff_threshold_pct": 0.5,
+  "ollama_url": "http://127.0.0.1:11434",
+  "gemma_model": "gemma3",
+  "screenshot_dir": "shots",
+  "reports_dir": "reports",
+  "model_path": "weights/diff_cnn.pt",
+  "window_size": [1280, 720]
+}

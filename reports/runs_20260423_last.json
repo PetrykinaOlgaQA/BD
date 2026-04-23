@@ -1,0 +1,22 @@
+{
+  "url_real": "https://chat.qwen.ai/",
+  "url_local": "https://chat.qwen.ai/",
+  "mse": 0.762767,
+  "changed_ratio_pct": 97.562,
+  "changed_ratio_raw_pct": 98.056,
+  "changed_ratio_shift_pct": 97.805,
+  "threshold_pct": 0.5,
+  "tolerance_shift_px": 2,
+  "tolerance_speckle_iter": 1,
+  "pixel_threshold": 30,
+  "size": [
+    1262,
+    572
+  ],
+  "model_prob_fail": null,
+  "ok": false,
+  "shot_real": "C:\\Users\\petry\\OneDrive\\Desktop\\6 семестр\\Диплом\\нейросеть\\shots\\real_1776968352907.png",
+  "shot_local": "C:\\Users\\petry\\OneDrive\\Desktop\\6 семестр\\Диплом\\нейросеть\\shots\\local_1776968352907.png",
+  "diff": "C:\\Users\\petry\\OneDrive\\Desktop\\6 семестр\\Диплом\\нейросеть\\shots\\diffs\\dual_local_1776968352907.png",
+  "gemma": "[Gemma/Ollama недоступна: HTTPConnectionPool(host='127.0.0.1', port=11434): Read timed out. (read timeout=120)]"
+}

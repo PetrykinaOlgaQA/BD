@@ -132,6 +132,7 @@ def run_pipeline(cfg: RunConfig) -> RunOutcome:
             stats,
             cr.diff_path,
             use_image=cfg.gemma_use_image,
+            context_label=f"эталон (файл): {os.path.basename(cfg.baseline_path)}; проверяемая страница: {cfg.url}",
         )
     lines = [
         f"URL: {cfg.url}",
@@ -184,13 +185,13 @@ def run_dual_pipeline(
     ts = int(time.time() * 1000)
     shot_real = os.path.join(cfg.screenshot_dir, f"real_{ts}.png")
     shot_local = os.path.join(cfg.screenshot_dir, f"local_{ts}.png")
-    L("Шаг 1/3: открываю реальный сайт и делаю скриншот…")
+    L("Шаг 1/3: эталон (прод/стенд) — скриншот…")
     capture_screenshot(cfg.url_real, shot_real, window_size=cfg.window_size)
-    L("         скрин реала сохранён.")
-    L("Шаг 2/3: открываю локалку и делаю скриншот…")
+    L("         скрин эталона сохранён.")
+    L("Шаг 2/3: тестируемая вёрстка — скриншот…")
     capture_screenshot(cfg.url_local, shot_local, window_size=cfg.window_size)
-    L("         скрин локалки сохранён.")
-    L("Шаг 3/3: сравниваю два скрина (реал как эталон, локалка как проверяемая)…")
+    L("         скрин тестируемого сайта сохранён.")
+    L("Шаг 3/3: сравнение эталон vs тест (diff)…")
     diff_dir = os.path.join(cfg.screenshot_dir, "diffs")
     cr = compare_screenshots(
         shot_real,
@@ -232,14 +233,15 @@ def run_dual_pipeline(
             stats,
             cr.diff_path,
             use_image=cfg.gemma_use_image,
+            context_label="тест вёрстки: эталон (прод) слева, справа — проверяемый сайт",
         )
         L("         Gemma ответила." if gemma_text and not gemma_text.startswith("[") else "         Gemma пропущена или ошибка.")
     lines = [
-        f"Реал: {cfg.url_real}",
-        f"Локалка: {cfg.url_local}",
+        f"Эталон: {cfg.url_real}",
+        f"Сайт под тестом: {cfg.url_local}",
         f"STATUS: {'PASS' if ok else 'FAIL'}",
-        f"Скрин реала: {shot_real}",
-        f"Скрин локалки: {shot_local}",
+        f"Скрин эталона: {shot_real}",
+        f"Скрин тестируемой страницы: {shot_local}",
         f"Diff: {cr.diff_path}",
         f"MSE: {cr.mse:.6f}",
         f"Пиксели (итог): {cr.changed_ratio * 100:.3f}%",
@@ -252,9 +254,9 @@ def run_dual_pipeline(
         lines.append("Gemma:")
         lines.append(gemma_text)
     if not ok:
-        lines.append("Итог: локалка визуально расходится с реалом сверх порога.")
+        lines.append("Итог: вёрстка расходится с эталоном сильнее допустимого порога.")
     else:
-        lines.append("Итог: в пределах порога, как на реале.")
+        lines.append("Итог: в пределах порога — как на эталоне.")
     report_path = append_text_report(cfg.reports_dir, lines)
     witness = os.path.join(cfg.reports_dir, f"witness_dual_{ts}")
     os.makedirs(witness, exist_ok=True)

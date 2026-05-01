@@ -10,5 +10,10 @@
   "screenshot_dir": "shots",
   "reports_dir": "reports",
   "model_path": "weights/diff_cnn.pt",
-  "window_size": [1280, 720]
+  "window_size": [1280, 720],
+  "figma": {
+    "file_key": "KqJfoHyA6re2zYzDmriMT2",
+    "node_id": "19:2",
+    "design_png": "storage/designs/figma_baseline_last.png"
+  }
 }

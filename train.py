@@ -66,7 +66,7 @@ def main():
     va = DataLoader(DiffDataset(val_i), batch_size=args.batch)
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = TinyDiffCNN().to(dev)
-    opt = torch.optim.Adam(model.parameters(), lr=args.lr)
+    opt = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-4)
     loss_fn = nn.CrossEntropyLoss()
     for ep in range(args.epochs):
         model.train()

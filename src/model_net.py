@@ -8,20 +8,29 @@ import torch.nn as nn
 
 
 class TinyDiffCNN(nn.Module):
+    """Классификатор по карте diff (градации серого 64×64). Переобучите веса после смены архитектуры."""
+
     def __init__(self):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Conv2d(1, 16, 3, padding=1),
+            nn.Conv2d(1, 24, 3, padding=1),
+            nn.BatchNorm2d(24),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(2),
-            nn.Conv2d(16, 32, 3, padding=1),
+            nn.Conv2d(24, 48, 3, padding=1),
+            nn.BatchNorm2d(48),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(2),
-            nn.Conv2d(32, 64, 3, padding=1),
+            nn.Conv2d(48, 96, 3, padding=1),
+            nn.BatchNorm2d(96),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(96, 96, 3, padding=1),
+            nn.BatchNorm2d(96),
             nn.ReLU(inplace=True),
             nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
-            nn.Linear(64, 2),
+            nn.Dropout(0.25),
+            nn.Linear(96, 2),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

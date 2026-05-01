@@ -26,7 +26,7 @@ def load_cfg(path: str) -> dict:
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Реал vs локалка")
+        self.title("UI Diff Lab — тест сайта vs эталон")
         self.geometry("820x640")
         self.cfg_path = os.path.join(ROOT, "config.json")
         self._q: queue.Queue = queue.Queue()
@@ -35,12 +35,12 @@ class App(tk.Tk):
         f = tk.Frame(self, padx=12, pady=10)
         f.pack(fill=tk.BOTH, expand=True)
         r = 0
-        tk.Label(f, text="Реальный сайт (URL)", font=("", 10, "bold")).grid(row=r, column=0, columnspan=3, sticky="w")
+        tk.Label(f, text="Эталон — прод / стенд (URL)", font=("", 10, "bold")).grid(row=r, column=0, columnspan=3, sticky="w")
         r += 1
         self.url_real = tk.Entry(f, width=92)
         self.url_real.grid(row=r, column=0, columnspan=3, sticky="we", pady=(0, 6))
         r += 1
-        tk.Label(f, text="Локалка (URL)", font=("", 10, "bold")).grid(row=r, column=0, columnspan=3, sticky="w")
+        tk.Label(f, text="Тестируемый сайт — локалка (URL)", font=("", 10, "bold")).grid(row=r, column=0, columnspan=3, sticky="w")
         r += 1
         self.url_local = tk.Entry(f, width=92)
         self.url_local.grid(row=r, column=0, columnspan=3, sticky="we", pady=(0, 8))
@@ -82,7 +82,7 @@ class App(tk.Tk):
         tk.Checkbutton(f, text="Картинка в Gemma", variable=self.gemma_img).grid(row=r, column=1, sticky="w")
         r += 1
 
-        self.btn = tk.Button(f, text="Сравнить реал и локалку", command=self.on_run, font=("", 11, "bold"))
+        self.btn = tk.Button(f, text="Запустить тест (эталон vs вёрстка)", command=self.on_run, font=("", 11, "bold"))
         self.btn.grid(row=r, column=0, columnspan=3, pady=10, sticky="w")
         r += 1
 
@@ -150,7 +150,7 @@ class App(tk.Tk):
         ur = self.url_real.get().strip()
         ul = self.url_local.get().strip()
         if not ur or not ul:
-            messagebox.showwarning("", "Нужны оба URL")
+            messagebox.showwarning("", "Нужны оба URL: эталон и тестируемый сайт")
             return
         try:
             thr = float(self.thr.get().replace(",", "."))

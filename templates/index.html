@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>UI Diff Lab — тест сайта против макета</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}" />
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <header class="top">
+    <div class="brand">
+      <span class="logo">◇</span>
+      <div>
+        <h1>UI Diff Lab</h1>
+        <p class="tagline">Тестирование вёрстки: сайт vs макет · diff · CNN · Gemma</p>
+      </div>
+    </div>
+    <span class="pill" id="connPill">загрузка…</span>
+  </header>
+
+  <main class="layout">
+    <section class="card panel">
+      <h2>Параметры теста</h2>
+      <label>Эталон — прод или стенд (как должно быть)</label>
+      <input type="url" id="urlReal" placeholder="https://…" autocomplete="off" />
+
+      <label>Тестируемый сайт — локальная вёрстка</label>
+      <input type="url" id="urlLocal" placeholder="http://127.0.0.1:5173" autocomplete="off" />
+
+      <div class="row2">
+        <div>
+          <label>Окно W</label>
+          <input type="number" id="winW" min="320" />
+        </div>
+        <div>
+          <label>Окно H</label>
+          <input type="number" id="winH" min="240" />
+        </div>
+      </div>
+
+      <div class="row2">
+        <div>
+          <label>Порог отличий %</label>
+          <input type="number" id="thr" step="0.01" min="0" />
+        </div>
+        <div>
+          <label>Порог яркости diff</label>
+          <input type="number" id="pixThr" min="0" max="255" />
+        </div>
+      </div>
+
+      <div class="row2">
+        <div>
+          <label>Сдвиг px (0–5)</label>
+          <input type="number" id="shift" min="0" max="5" />
+        </div>
+        <div>
+          <label>Opening (0–5)</label>
+          <input type="number" id="speck" min="0" max="5" />
+        </div>
+      </div>
+
+      <div class="checks">
+        <label class="chk"><input type="checkbox" id="useGemma" checked /> Gemma (Ollama)</label>
+        <label class="chk"><input type="checkbox" id="useModel" /> CNN-классификатор</label>
+        <label class="chk"><input type="checkbox" id="gemmaImg" checked /> Картинка diff в Gemma</label>
+      </div>
+
+      <button type="button" class="btn primary" id="btnRun">Запустить тест</button>
+      <p class="hint">Нужны Chrome; для текстового отчёта — Ollama и модель из config.</p>
+    </section>
+
+    <section class="card output">
+      <div class="out-head">
+        <h2>Результат теста</h2>
+        <span class="status idle" id="statusBadge">ожидание</span>
+      </div>
+      <pre class="log" id="logBox"></pre>
+      <article class="gemma" id="gemmaBox">
+        <h3>Отчёт по расхождениям с макетом</h3>
+        <div class="md" id="gemmaMd"></div>
+      </article>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

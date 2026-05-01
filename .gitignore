@@ -1,0 +1,25 @@
+# Секреты и локальная конфигурация
+config.json
+.env
+.env.*
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Отчёты и скриншоты (при желании закоммитьте fixtures — раскомментируйте)
+shots/
+reports/
+storage/designs/*.png
+
+# Веса (крупные; при необходимости храните отдельно)
+weights/*.pt
+
+# IDE
+.idea/
+.vscode/
+*.swp

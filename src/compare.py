@@ -7,6 +7,10 @@ from typing import Tuple
 import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
+# Сравнение «как есть» на 20+ Mpx даёт сотни МБ в float32 и падает на ноутбуке.
+_MAX_COMPARE_PIXELS = 8_000_000
+_MSE_CHUNK = 2_000_000
+
 
 @dataclass
 class CompareResult:
@@ -27,19 +31,42 @@ def _to_rgb(im: Image.Image) -> Image.Image:
     return im
 
 
+def _mse_from_diff_image(diff: Image.Image) -> float:
+    """MSE эталона и текущего по карте |a-b| без float32 на весь RGB."""
+    d = np.asarray(diff.convert("RGB"), dtype=np.uint8).reshape(-1)
+    acc = 0.0
+    for i in range(0, d.size, _MSE_CHUNK):
+        x = d[i : i + _MSE_CHUNK].astype(np.float64)
+        acc += float(np.dot(x, x))
+    return (acc / max(1, d.size)) / (255.0**2)
+
+
 def _shift_min_diff(a_hwc: np.ndarray, b_hwc: np.ndarray, t: int) -> np.ndarray:
     h, w, _ = a_hwc.shape
-    b = b_hwc.astype(np.float32)
+    b = b_hwc.astype(np.int16)
     if t <= 0:
-        return np.max(np.abs(a_hwc.astype(np.float32) - b), axis=2)
-    ap = np.pad(a_hwc.astype(np.float32), ((t, t), (t, t), (0, 0)), mode="edge")
+        d = np.abs(a_hwc.astype(np.int16) - b)
+        return np.max(d, axis=2).astype(np.float32)
+    ap = np.pad(a_hwc.astype(np.int16), ((t, t), (t, t), (0, 0)), mode="edge")
     min_d = np.full((h, w), np.inf, dtype=np.float32)
     for dy in range(2 * t + 1):
         for dx in range(2 * t + 1):
             sub = ap[dy : dy + h, dx : dx + w, :]
-            d = np.max(np.abs(sub - b), axis=2)
+            d = np.max(np.abs(sub - b), axis=2).astype(np.float32)
             min_d = np.minimum(min_d, d)
     return min_d
+
+
+def _downscale_if_huge(a: Image.Image, b: Image.Image) -> Tuple[Image.Image, Image.Image]:
+    w, h = a.size
+    if w * h <= _MAX_COMPARE_PIXELS:
+        return a, b
+    scale = (_MAX_COMPARE_PIXELS / float(w * h)) ** 0.5
+    nw, nh = max(1, int(w * scale)), max(1, int(h * scale))
+    return (
+        a.resize((nw, nh), Image.Resampling.LANCZOS),
+        b.resize((nw, nh), Image.Resampling.LANCZOS),
+    )
 
 
 def _opening_binary(mask: np.ndarray, iterations: int) -> np.ndarray:
@@ -67,11 +94,11 @@ def compare_screenshots(
     b = _to_rgb(Image.open(current_path))
     if a.size != b.size:
         b = b.resize(a.size, Image.Resampling.LANCZOS)
+    a, b = _downscale_if_huge(a, b)
     a_np = np.asarray(a)
     b_np = np.asarray(b)
     diff = ImageChops.difference(a, b)
-    arr = np.asarray(diff, dtype=np.float32) / 255.0
-    mse = float(np.mean(arr ** 2))
+    mse = _mse_from_diff_image(diff)
     gray = diff.convert("L")
     g = np.asarray(gray, dtype=np.uint8)
     thr_u8 = int(pixel_threshold)

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>UI Diff Lab — тест сайта против макета</title>
+  <title>Сайт vs макет Figma</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet" />
@@ -15,8 +15,8 @@
     <div class="brand">
       <span class="logo">◇</span>
       <div>
-        <h1>UI Diff Lab</h1>
-        <p class="tagline">Тестирование вёрстки: сайт vs макет · diff · CNN · Gemma</p>
+        <h1>Сайт vs Figma</h1>
+        <p class="tagline">Скрин страницы · diff · CNN · описание багов (Ollama)</p>
       </div>
     </div>
     <span class="pill" id="connPill">загрузка…</span>
@@ -24,12 +24,23 @@
 
   <main class="layout">
     <section class="card panel">
-      <h2>Параметры теста</h2>
-      <label>Эталон — прод или стенд (как должно быть)</label>
-      <input type="url" id="urlReal" placeholder="https://…" autocomplete="off" />
+      <h2>Тест вёрстки</h2>
+      <label>URL страницы (dev или прод; сейчас проверка — 1920×1080 из config)</label>
+      <input type="url" id="urlSite" placeholder="https://…" autocomplete="off" />
 
-      <label>Тестируемый сайт — локальная вёрстка</label>
-      <input type="url" id="urlLocal" placeholder="http://127.0.0.1:5173" autocomplete="off" />
+      <label>Figma file key</label>
+      <input type="text" id="figmaKey" placeholder="из URL файла …/design/KEY/…" autocomplete="off" />
+
+      <label>Figma node id (в ссылке node-id=19-2 → здесь 19:2)</label>
+      <input type="text" id="figmaNode" placeholder="19:2" autocomplete="off" />
+
+      <div class="row2">
+        <div>
+          <label>Масштаб PNG Figma (1–4)</label>
+          <input type="number" id="figScale" min="1" max="4" />
+        </div>
+        <div></div>
+      </div>
 
       <div class="row2">
         <div>
@@ -65,23 +76,23 @@
       </div>
 
       <div class="checks">
-        <label class="chk"><input type="checkbox" id="useGemma" checked /> Gemma (Ollama)</label>
-        <label class="chk"><input type="checkbox" id="useModel" /> CNN-классификатор</label>
-        <label class="chk"><input type="checkbox" id="gemmaImg" checked /> Картинка diff в Gemma</label>
+        <label class="chk"><input type="checkbox" id="useGemma" checked /> Описание багов (Ollama)</label>
+        <label class="chk"><input type="checkbox" id="useModel" checked /> CNN по diff</label>
+        <label class="chk"><input type="checkbox" id="gemmaImg" checked /> Картинка diff в модель</label>
       </div>
 
-      <button type="button" class="btn primary" id="btnRun">Запустить тест</button>
-      <p class="hint">Нужны Chrome; для текстового отчёта — Ollama и модель из config.</p>
+      <button type="button" class="btn primary" id="btnRun">Сравнить с макетом</button>
+      <p class="hint">Перед запуском: <code>FIGMA_ACCESS_TOKEN</code>, Chrome. Для текста багов — запущенная Ollama (<code>ollama serve</code>) и модель из config (<code>ollama pull …</code>).</p>
     </section>
 
     <section class="card output">
       <div class="out-head">
-        <h2>Результат теста</h2>
+        <h2>Результат</h2>
         <span class="status idle" id="statusBadge">ожидание</span>
       </div>
       <pre class="log" id="logBox"></pre>
       <article class="gemma" id="gemmaBox">
-        <h3>Отчёт по расхождениям с макетом</h3>
+        <h3>Что не совпало с макетом</h3>
         <div class="md" id="gemmaMd"></div>
       </article>
     </section>

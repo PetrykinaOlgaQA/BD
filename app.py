@@ -12,7 +12,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from src.pipeline import DualRunConfig, run_dual_pipeline
+from src.pipeline import FigmaVsSiteConfig, run_figma_vs_site
 
 
 def load_cfg(path: str) -> dict:
@@ -26,7 +26,7 @@ def load_cfg(path: str) -> dict:
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("UI Diff Lab — тест сайта vs эталон")
+        self.title("Сайт vs макет Figma")
         self.geometry("820x640")
         self.cfg_path = os.path.join(ROOT, "config.json")
         self._q: queue.Queue = queue.Queue()
@@ -35,15 +35,16 @@ class App(tk.Tk):
         f = tk.Frame(self, padx=12, pady=10)
         f.pack(fill=tk.BOTH, expand=True)
         r = 0
-        tk.Label(f, text="Эталон — прод / стенд (URL)", font=("", 10, "bold")).grid(row=r, column=0, columnspan=3, sticky="w")
+        tk.Label(f, text="URL страницы под тестом (локальный dev-сервер)", font=("", 10, "bold")).grid(
+            row=r, column=0, columnspan=3, sticky="w"
+        )
         r += 1
-        self.url_real = tk.Entry(f, width=92)
-        self.url_real.grid(row=r, column=0, columnspan=3, sticky="we", pady=(0, 6))
+        self.url_site = tk.Entry(f, width=92)
+        self.url_site.grid(row=r, column=0, columnspan=3, sticky="we", pady=(0, 8))
         r += 1
-        tk.Label(f, text="Тестируемый сайт — локалка (URL)", font=("", 10, "bold")).grid(row=r, column=0, columnspan=3, sticky="w")
-        r += 1
-        self.url_local = tk.Entry(f, width=92)
-        self.url_local.grid(row=r, column=0, columnspan=3, sticky="we", pady=(0, 8))
+        tk.Label(f, text="Токен Figma: переменная окружения FIGMA_ACCESS_TOKEN", fg="gray").grid(
+            row=r, column=0, columnspan=3, sticky="w"
+        )
         r += 1
 
         tk.Label(f, text="Окно W×H").grid(row=r, column=0, sticky="w")
@@ -72,21 +73,21 @@ class App(tk.Tk):
         self.pix_thr.grid(row=r, column=1, sticky="w")
         r += 1
 
-        self.use_gemma = tk.BooleanVar(value=False)
-        self.use_model = tk.BooleanVar(value=False)
-        self.gemma_img = tk.BooleanVar(value=False)
-        tk.Checkbutton(f, text="Gemma (Ollama)", variable=self.use_gemma).grid(row=r, column=1, sticky="w")
+        self.use_gemma = tk.BooleanVar(value=True)
+        self.use_model = tk.BooleanVar(value=True)
+        self.gemma_img = tk.BooleanVar(value=True)
+        tk.Checkbutton(f, text="Текст багов (Gemma / Ollama)", variable=self.use_gemma).grid(row=r, column=1, sticky="w")
         r += 1
-        tk.Checkbutton(f, text="CNN", variable=self.use_model).grid(row=r, column=1, sticky="w")
+        tk.Checkbutton(f, text="CNN по diff", variable=self.use_model).grid(row=r, column=1, sticky="w")
         r += 1
-        tk.Checkbutton(f, text="Картинка в Gemma", variable=self.gemma_img).grid(row=r, column=1, sticky="w")
+        tk.Checkbutton(f, text="Передавать diff-картинку в модель", variable=self.gemma_img).grid(row=r, column=1, sticky="w")
         r += 1
 
-        self.btn = tk.Button(f, text="Запустить тест (эталон vs вёрстка)", command=self.on_run, font=("", 11, "bold"))
+        self.btn = tk.Button(f, text="Сравнить с макетом Figma", command=self.on_run, font=("", 11, "bold"))
         self.btn.grid(row=r, column=0, columnspan=3, pady=10, sticky="w")
         r += 1
 
-        tk.Label(f, text="Ход теста", font=("", 9, "bold")).grid(row=r, column=0, sticky="w")
+        tk.Label(f, text="Лог", font=("", 9, "bold")).grid(row=r, column=0, sticky="w")
         r += 1
         self.log = scrolledtext.ScrolledText(f, height=22, state=tk.DISABLED, font=("Consolas", 10))
         self.log.grid(row=r, column=0, columnspan=3, sticky="nsew")
@@ -98,10 +99,8 @@ class App(tk.Tk):
 
     def _apply_cfg_defaults(self):
         c = load_cfg(self.cfg_path)
-        self.url_real.delete(0, tk.END)
-        self.url_real.insert(0, c.get("url_real", c.get("url", "")))
-        self.url_local.delete(0, tk.END)
-        self.url_local.insert(0, c.get("url_local", "http://127.0.0.1:3000"))
+        self.url_site.delete(0, tk.END)
+        self.url_site.insert(0, c.get("url_site", c.get("url_local", "http://127.0.0.1:5173")))
         w, h = c.get("window_size", [1280, 720])
         self.win_w.delete(0, tk.END)
         self.win_w.insert(0, str(w))
@@ -130,7 +129,12 @@ class App(tk.Tk):
                     self._busy = False
                     self.btn.configure(state=tk.NORMAL)
                     out = item[1]
+                    self._append(f"Отчёт TXT: {out.report_txt}")
+                    if getattr(out, "report_html", None):
+                        self._append(f"Отчёт HTML: {out.report_html}")
+                    self._append(f"Артефакты: {out.witness_dir}")
                     if out.gemma_text:
+                        self._append("")
                         self._append(out.gemma_text)
                 elif isinstance(item, tuple) and item[0] == "err":
                     self._busy = False
@@ -147,10 +151,13 @@ class App(tk.Tk):
     def on_run(self):
         if self._busy:
             return
-        ur = self.url_real.get().strip()
-        ul = self.url_local.get().strip()
-        if not ur or not ul:
-            messagebox.showwarning("", "Нужны оба URL: эталон и тестируемый сайт")
+        site = self.url_site.get().strip()
+        if not site:
+            messagebox.showwarning("", "Укажи URL страницы")
+            return
+        tok = os.environ.get("FIGMA_ACCESS_TOKEN") or os.environ.get("FIGMA_TOKEN")
+        if not tok:
+            messagebox.showerror("", "Нет FIGMA_ACCESS_TOKEN в окружении. Закрой приложение, в PowerShell:\n$env:FIGMA_ACCESS_TOKEN='...'\npython app.py")
             return
         try:
             thr = float(self.thr.get().replace(",", "."))
@@ -160,13 +167,27 @@ class App(tk.Tk):
             sp = int(self.speck.get())
             px = int(self.pix_thr.get())
         except ValueError:
-            messagebox.showwarning("", "Проверь числа (окно, пороги)")
+            messagebox.showwarning("", "Проверь числа")
             return
 
         c = load_cfg(self.cfg_path)
-        cfg = DualRunConfig(
-            url_real=ur,
-            url_local=ul,
+        fg = c.get("figma") or {}
+        fk = (fg.get("file_key") or "").strip()
+        nid = (fg.get("node_id") or "").strip()
+        if not fk or not nid:
+            messagebox.showerror("", "В config.json заполни секцию figma: file_key и node_id")
+            return
+
+        out_png = os.path.join(ROOT, fg.get("design_png", "storage/designs/figma_baseline_last.png"))
+        os.makedirs(os.path.dirname(out_png) or ".", exist_ok=True)
+
+        fcfg = FigmaVsSiteConfig(
+            site_url=site,
+            figma_file_key=fk,
+            figma_node_id=nid,
+            figma_token=tok,
+            figma_baseline_png=out_png,
+            figma_scale=int(fg.get("scale", 1)),
             screenshot_dir=os.path.join(ROOT, c.get("screenshot_dir", "shots")),
             reports_dir=os.path.join(ROOT, c.get("reports_dir", "reports")),
             diff_threshold_pct=thr,
@@ -194,7 +215,7 @@ class App(tk.Tk):
                 self._q.put(msg)
 
             try:
-                out = run_dual_pipeline(cfg, log=L)
+                out = run_figma_vs_site(fcfg, log=L)
                 self._q.put(("ok", out))
             except Exception as e:
                 self._q.put(("err", e))

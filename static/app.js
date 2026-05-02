@@ -20,15 +20,17 @@ function appendLog(text) {
 document.addEventListener("DOMContentLoaded", async () => {
   try {
     const c = await loadConfig();
-    document.getElementById("urlReal").value = c.url_real || "";
-    document.getElementById("urlLocal").value = c.url_local || "";
+    document.getElementById("urlSite").value = c.url_site || "";
+    document.getElementById("figmaKey").value = c.figma_file_key || "";
+    document.getElementById("figmaNode").value = c.figma_node_id || "";
+    document.getElementById("figScale").value = c.figma_scale || 2;
     document.getElementById("winW").value = c.window_w;
     document.getElementById("winH").value = c.window_h;
     document.getElementById("thr").value = c.diff_threshold_pct;
     document.getElementById("pixThr").value = c.pixel_threshold;
     document.getElementById("shift").value = c.tolerance_shift_px;
     document.getElementById("speck").value = c.tolerance_speckle_iter;
-    setPill("config ok", true);
+    setPill("готово", true);
   } catch {
     setPill("нет config", false);
   }
@@ -42,11 +44,13 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     btn.disabled = true;
     badge.className = "status run";
-    badge.textContent = "идёт прогон…";
+    badge.textContent = "идёт…";
 
     const body = {
-      url_real: document.getElementById("urlReal").value.trim(),
-      url_local: document.getElementById("urlLocal").value.trim(),
+      url_site: document.getElementById("urlSite").value.trim(),
+      figma_file_key: document.getElementById("figmaKey").value.trim(),
+      figma_node_id: document.getElementById("figmaNode").value.trim(),
+      figma_scale: parseInt(document.getElementById("figScale").value, 10),
       window_w: parseInt(document.getElementById("winW").value, 10),
       window_h: parseInt(document.getElementById("winH").value, 10),
       diff_threshold_pct: parseFloat(String(document.getElementById("thr").value).replace(",", ".")),
@@ -59,7 +63,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     };
 
     try {
-      const r = await fetch("/api/run-dual", {
+      const r = await fetch("/api/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -75,6 +79,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       (data.logs || []).forEach((l) => appendLog(l));
       appendLog("");
       appendLog("Отчёт: " + data.report_txt);
+      if (data.report_html) appendLog("HTML: " + data.report_html);
       appendLog("Артефакты: " + data.witness_dir);
       appendLog("MSE: " + data.mse + " | пиксели: " + data.changed_ratio_pct + "%");
       if (data.model_prob_fail != null) {
@@ -87,7 +92,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       const md = data.gemma_markdown || "";
       gemmaMd.innerHTML = md
         ? (typeof marked !== "undefined" ? marked.parse(md) : "<pre>" + md + "</pre>")
-        : "<p class=\"muted\">Gemma выключена или нет ответа.</p>";
+        : "<p class=\"muted\">Отчёт отключён или модель не ответила.</p>";
     } catch (e) {
       appendLog(String(e));
       badge.className = "status fail";

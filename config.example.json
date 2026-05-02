@@ -1,19 +1,19 @@
 {
-  "url_real": "https://example.com",
-  "url_local": "http://127.0.0.1:5173",
+  "url_site": "https://dterra.ru/corporatesites/",
+  "window_size": [1920, 1080],
   "tolerance_shift_px": 2,
   "tolerance_speckle_iter": 1,
   "pixel_threshold": 30,
   "diff_threshold_pct": 0.5,
   "ollama_url": "http://127.0.0.1:11434",
-  "gemma_model": "gemma3",
+  "gemma_model": "gemma3:latest",
   "screenshot_dir": "shots",
   "reports_dir": "reports",
   "model_path": "weights/diff_cnn.pt",
-  "window_size": [1280, 720],
   "figma": {
     "file_key": "KqJfoHyA6re2zYzDmriMT2",
     "node_id": "19:2",
-    "design_png": "storage/designs/figma_baseline_last.png"
+    "design_png": "storage/designs/figma_baseline_last.png",
+    "scale": 1
   }
 }

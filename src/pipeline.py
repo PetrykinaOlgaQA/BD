@@ -10,9 +10,10 @@ import torch
 
 from src.capture import capture_screenshot
 from src.compare import CompareResult, compare_screenshots, diff_tensor_gray
+from src.figma_client import export_frame_png, public_design_url
 from src.gemma_client import explain_diff_ru
 from src.model_net import load_classifier, predict_fail_prob
-from src.report import append_text_report, write_json_sidecar
+from src.report import append_text_report, write_html_report, write_json_sidecar
 
 
 @dataclass
@@ -32,6 +33,9 @@ class RunConfig:
     tolerance_shift_px: int = 0
     tolerance_speckle_iter: int = 0
     pixel_threshold: int = 30
+    baseline_is_figma: bool = False  # True = эталон из Figma (для промпта к VLM)
+    figma_file_key: Optional[str] = None
+    figma_node_id: Optional[str] = None
 
 
 @dataclass
@@ -43,37 +47,7 @@ class RunOutcome:
     gemma_text: str
     report_txt: str
     witness_dir: str
-
-
-@dataclass
-class DualRunConfig:
-    url_real: str
-    url_local: str
-    screenshot_dir: str
-    reports_dir: str
-    diff_threshold_pct: float
-    ollama_url: str
-    gemma_model: str
-    use_gemma: bool
-    model_path: Optional[str]
-    use_model: bool
-    window_size: Tuple[int, int]
-    gemma_use_image: bool
-    tolerance_shift_px: int = 2
-    tolerance_speckle_iter: int = 1
-    pixel_threshold: int = 30
-
-
-@dataclass
-class DualRunOutcome:
-    ok: bool
-    shot_real: str
-    shot_local: str
-    compare: CompareResult
-    model_prob_fail: Optional[float]
-    gemma_text: str
-    report_txt: str
-    witness_dir: str
+    report_html: Optional[str] = None
 
 
 def _verdict(
@@ -93,7 +67,7 @@ def run_pipeline(cfg: RunConfig) -> RunOutcome:
     os.makedirs(cfg.screenshot_dir, exist_ok=True)
     ts = int(time.time() * 1000)
     cur = os.path.join(cfg.screenshot_dir, f"current_{ts}.png")
-    capture_screenshot(cfg.url, cur, window_size=cfg.window_size)
+    _, layout_site = capture_screenshot(cfg.url, cur, window_size=cfg.window_size)
     diff_dir = os.path.join(cfg.screenshot_dir, "diffs")
     cr = compare_screenshots(
         cfg.baseline_path,
@@ -111,8 +85,13 @@ def run_pipeline(cfg: RunConfig) -> RunOutcome:
         x = diff_tensor_gray(cr.diff_path)
         prob = predict_fail_prob(model, x, device)
     ok = _verdict(cr, cfg.diff_threshold_pct, prob, has_model)
+    ls = dict(layout_site) if isinstance(layout_site, dict) else {}
+    els = ls.get("elements")
+    if isinstance(els, list) and len(els) > 48:
+        ls = {**ls, "elements": els[:48], "elements_note": "обрезано до 48 блоков для промпта"}
     stats: Dict[str, Any] = {
         "url": cfg.url,
+        "baseline": "figma_png" if cfg.baseline_is_figma else "image",
         "mse": round(cr.mse, 6),
         "changed_ratio_pct": round(cr.changed_ratio * 100, 3),
         "changed_ratio_raw_pct": round(cr.changed_ratio_raw * 100, 3),
@@ -123,16 +102,21 @@ def run_pipeline(cfg: RunConfig) -> RunOutcome:
         "pixel_threshold": cfg.pixel_threshold,
         "size": [cr.width, cr.height],
         "model_prob_fail": prob,
+        "layout_site": ls,
     }
     gemma_text = ""
     if cfg.use_gemma:
+        if cfg.baseline_is_figma:
+            gctx = f"эталон — кадр макета из Figma (PNG {os.path.basename(cfg.baseline_path)}); под тестом страница: {cfg.url}"
+        else:
+            gctx = f"эталон (файл): {os.path.basename(cfg.baseline_path)}; страница: {cfg.url}"
         gemma_text = explain_diff_ru(
             cfg.ollama_url,
             cfg.gemma_model,
             stats,
             cr.diff_path,
             use_image=cfg.gemma_use_image,
-            context_label=f"эталон (файл): {os.path.basename(cfg.baseline_path)}; проверяемая страница: {cfg.url}",
+            context_label=gctx,
         )
     lines = [
         f"URL: {cfg.url}",
@@ -154,13 +138,42 @@ def run_pipeline(cfg: RunConfig) -> RunOutcome:
         lines.append("Что не так: визуально заметное отличие от эталона (см. diff), либо модель/порог указали на риск регрессии.")
     else:
         lines.append("Эталон и текущий скрин совпали в пределах порога.")
-    report_path = append_text_report(cfg.reports_dir, lines)
     witness = os.path.join(cfg.reports_dir, f"witness_{ts}")
     os.makedirs(witness, exist_ok=True)
     for p in [cfg.baseline_path, cur, cr.diff_path or ""]:
         if p and os.path.isfile(p):
             shutil.copy2(p, witness)
-    meta = {**stats, "ok": ok, "baseline": cfg.baseline_path, "current": cur, "diff": cr.diff_path, "gemma": gemma_text}
+    fig_url = (
+        public_design_url(cfg.figma_file_key, cfg.figma_node_id)
+        if (cfg.figma_file_key and cfg.figma_node_id)
+        else "https://www.figma.com/"
+    )
+    shot_b = os.path.join(witness, os.path.basename(cfg.baseline_path))
+    shot_c = os.path.join(witness, os.path.basename(cur))
+    shot_d = os.path.join(witness, os.path.basename(cr.diff_path)) if cr.diff_path else ""
+    html_path = write_html_report(
+        cfg.reports_dir,
+        site_url=cfg.url,
+        figma_url=fig_url,
+        ok=ok,
+        stats=stats,
+        gemma_markdown=gemma_text,
+        baseline_path=shot_b if os.path.isfile(shot_b) else cfg.baseline_path,
+        current_shot=shot_c if os.path.isfile(shot_c) else cur,
+        diff_path=shot_d if (shot_d and os.path.isfile(shot_d)) else cr.diff_path,
+    )
+    lines.append(f"HTML-отчёт: {html_path}")
+    report_path = append_text_report(cfg.reports_dir, lines)
+    meta = {
+        **stats,
+        "ok": ok,
+        "baseline": cfg.baseline_path,
+        "current": cur,
+        "diff": cr.diff_path,
+        "gemma": gemma_text,
+        "report_html": html_path,
+        "figma_url": fig_url,
+    }
     write_json_sidecar(report_path, meta)
     return RunOutcome(
         ok=ok,
@@ -170,111 +183,77 @@ def run_pipeline(cfg: RunConfig) -> RunOutcome:
         gemma_text=gemma_text,
         report_txt=report_path,
         witness_dir=witness,
+        report_html=html_path,
     )
 
 
-def run_dual_pipeline(
-    cfg: DualRunConfig,
+@dataclass
+class FigmaVsSiteConfig:
+    """Скачать кадр из Figma, снять скрин сайта, сравнить и при необходимости вызвать VLM."""
+
+    site_url: str
+    figma_file_key: str
+    figma_node_id: str
+    figma_token: str
+    figma_baseline_png: str
+    figma_scale: int = 1
+    screenshot_dir: str = "shots"
+    reports_dir: str = "reports"
+    diff_threshold_pct: float = 0.5
+    ollama_url: str = "http://127.0.0.1:11434"
+    gemma_model: str = "gemma3"
+    use_gemma: bool = True
+    model_path: Optional[str] = None
+    use_model: bool = False
+    window_size: Tuple[int, int] = (1920, 1080)
+    gemma_use_image: bool = True
+    tolerance_shift_px: int = 2
+    tolerance_speckle_iter: int = 1
+    pixel_threshold: int = 30
+
+
+def run_figma_vs_site(
+    cfg: FigmaVsSiteConfig,
     log: Optional[Callable[[str], None]] = None,
-) -> DualRunOutcome:
+) -> RunOutcome:
     def L(s: str) -> None:
         if log:
             log(s)
 
-    os.makedirs(cfg.screenshot_dir, exist_ok=True)
-    ts = int(time.time() * 1000)
-    shot_real = os.path.join(cfg.screenshot_dir, f"real_{ts}.png")
-    shot_local = os.path.join(cfg.screenshot_dir, f"local_{ts}.png")
-    L("Шаг 1/3: эталон (прод/стенд) — скриншот…")
-    capture_screenshot(cfg.url_real, shot_real, window_size=cfg.window_size)
-    L("         скрин эталона сохранён.")
-    L("Шаг 2/3: тестируемая вёрстка — скриншот…")
-    capture_screenshot(cfg.url_local, shot_local, window_size=cfg.window_size)
-    L("         скрин тестируемого сайта сохранён.")
-    L("Шаг 3/3: сравнение эталон vs тест (diff)…")
-    diff_dir = os.path.join(cfg.screenshot_dir, "diffs")
-    cr = compare_screenshots(
-        shot_real,
-        shot_local,
-        diff_dir,
-        tag="dual",
-        pixel_threshold=cfg.pixel_threshold,
+    L("Шаг 1/2: загружаю кадр макета из Figma…")
+    os.makedirs(os.path.dirname(cfg.figma_baseline_png) or ".", exist_ok=True)
+    export_frame_png(
+        cfg.figma_file_key,
+        cfg.figma_node_id,
+        cfg.figma_token,
+        cfg.figma_baseline_png,
+        scale=max(1, min(4, int(cfg.figma_scale))),
+    )
+    L(f"         макет сохранён: {cfg.figma_baseline_png}")
+    L("Шаг 2/2: скриншот сайта и сравнение с макетом…")
+    rc = RunConfig(
+        url=cfg.site_url,
+        baseline_path=cfg.figma_baseline_png,
+        screenshot_dir=cfg.screenshot_dir,
+        reports_dir=cfg.reports_dir,
+        diff_threshold_pct=cfg.diff_threshold_pct,
+        ollama_url=cfg.ollama_url,
+        gemma_model=cfg.gemma_model,
+        use_gemma=cfg.use_gemma,
+        model_path=cfg.model_path,
+        use_model=cfg.use_model,
+        window_size=cfg.window_size,
+        gemma_use_image=cfg.gemma_use_image,
         tolerance_shift_px=cfg.tolerance_shift_px,
         tolerance_speckle_iter=cfg.tolerance_speckle_iter,
+        pixel_threshold=cfg.pixel_threshold,
+        baseline_is_figma=True,
+        figma_file_key=cfg.figma_file_key,
+        figma_node_id=cfg.figma_node_id,
     )
-    L("         сравнение готово.")
-    device = torch.device("cpu")
-    model, has_model = load_classifier(cfg.model_path if cfg.use_model else None, device)
-    prob = None
-    if has_model and model and cr.diff_path:
-        x = diff_tensor_gray(cr.diff_path)
-        prob = predict_fail_prob(model, x, device)
-    ok = _verdict(cr, cfg.diff_threshold_pct, prob, has_model)
-    stats: Dict[str, Any] = {
-        "url_real": cfg.url_real,
-        "url_local": cfg.url_local,
-        "mse": round(cr.mse, 6),
-        "changed_ratio_pct": round(cr.changed_ratio * 100, 3),
-        "changed_ratio_raw_pct": round(cr.changed_ratio_raw * 100, 3),
-        "changed_ratio_shift_pct": round(cr.changed_ratio_shift * 100, 3),
-        "threshold_pct": cfg.diff_threshold_pct,
-        "tolerance_shift_px": cr.tolerance_shift_px,
-        "tolerance_speckle_iter": cr.tolerance_speckle_iter,
-        "pixel_threshold": cfg.pixel_threshold,
-        "size": [cr.width, cr.height],
-        "model_prob_fail": prob,
-    }
-    gemma_text = ""
-    if cfg.use_gemma:
-        L("         опционально: запрос к Gemma…")
-        gemma_text = explain_diff_ru(
-            cfg.ollama_url,
-            cfg.gemma_model,
-            stats,
-            cr.diff_path,
-            use_image=cfg.gemma_use_image,
-            context_label="тест вёрстки: эталон (прод) слева, справа — проверяемый сайт",
-        )
-        L("         Gemma ответила." if gemma_text and not gemma_text.startswith("[") else "         Gemma пропущена или ошибка.")
-    lines = [
-        f"Эталон: {cfg.url_real}",
-        f"Сайт под тестом: {cfg.url_local}",
-        f"STATUS: {'PASS' if ok else 'FAIL'}",
-        f"Скрин эталона: {shot_real}",
-        f"Скрин тестируемой страницы: {shot_local}",
-        f"Diff: {cr.diff_path}",
-        f"MSE: {cr.mse:.6f}",
-        f"Пиксели (итог): {cr.changed_ratio * 100:.3f}%",
-        f"Raw / shift: {cr.changed_ratio_raw * 100:.3f}% / {cr.changed_ratio_shift * 100:.3f}%",
-        f"Сдвиг px: {cr.tolerance_shift_px}, opening: {cr.tolerance_speckle_iter}",
-    ]
-    if prob is not None:
-        lines.append(f"Model P(fail): {prob:.4f}")
-    if gemma_text:
-        lines.append("Gemma:")
-        lines.append(gemma_text)
-    if not ok:
-        lines.append("Итог: вёрстка расходится с эталоном сильнее допустимого порога.")
-    else:
-        lines.append("Итог: в пределах порога — как на эталоне.")
-    report_path = append_text_report(cfg.reports_dir, lines)
-    witness = os.path.join(cfg.reports_dir, f"witness_dual_{ts}")
-    os.makedirs(witness, exist_ok=True)
-    for p in [shot_real, shot_local, cr.diff_path or ""]:
-        if p and os.path.isfile(p):
-            shutil.copy2(p, witness)
-    meta = {**stats, "ok": ok, "shot_real": shot_real, "shot_local": shot_local, "diff": cr.diff_path, "gemma": gemma_text}
-    write_json_sidecar(report_path, meta)
-    L(f"Отчёт: {report_path}")
-    L(f"Артефакты: {witness}")
-    L("=== " + ("PASS" if ok else "FAIL") + " ===")
-    return DualRunOutcome(
-        ok=ok,
-        shot_real=shot_real,
-        shot_local=shot_local,
-        compare=cr,
-        model_prob_fail=prob,
-        gemma_text=gemma_text,
-        report_txt=report_path,
-        witness_dir=witness,
-    )
+    out = run_pipeline(rc)
+    if log:
+        log(f"Отчёт: {out.report_txt}")
+        log(f"Артефакты: {out.witness_dir}")
+        log("=== " + ("PASS" if out.ok else "FAIL") + " ===")
+    return out

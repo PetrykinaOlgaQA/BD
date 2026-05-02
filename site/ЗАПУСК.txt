@@ -1,0 +1,16 @@
+Как открыть этот сайт в браузере (без npm)
+
+1) Открой PowerShell.
+2) Выполни (путь поправь, если папка другая). В PowerShell 5.1 на Windows
+   цепочку «cd … && python …» лучше не использовать — выполни двумя строками:
+
+   cd "c:\Users\petry\OneDrive\Desktop\6 семестр\Диплом\нейросеть\site"
+   python -m http.server 8080
+
+   (В PowerShell 7+ можно одной строкой: cd "…\site"; python -m http.server 8080)
+
+3) В браузере открой: http://127.0.0.1:8080
+
+4) В файле ..\config.json поле url_site должно быть: http://127.0.0.1:8080
+
+Потом во втором окне PowerShell запускай сравнение с Figma из папки "нейросеть" (python run_tests.py или web_server.py).

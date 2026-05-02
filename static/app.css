@@ -122,7 +122,8 @@ body {
 }
 
 .panel input[type="url"],
-.panel input[type="number"] {
+.panel input[type="number"],
+.panel input[type="text"] {
   width: 100%;
   padding: 0.55rem 0.65rem;
   border-radius: 8px;

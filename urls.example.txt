@@ -1,2 +1,0 @@
-# по одному URL на строку
-# https://example.com

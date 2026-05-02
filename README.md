@@ -1,108 +1,146 @@
-# UI Diff Lab — нейросеть для тестирования сайтов
+# Сайт vs макет Figma
 
-Это **инструмент автоматизированного тестирования вёрстки**: он открывает страницу в браузере, делает скриншот и **сравнивает реализацию с эталоном** — с **макетом из Figma** (экспорт кадра по API) или с **живым продом**, пока вы верстаете локально.
+Один сценарий: **сверстанная страница** открывается в Chrome, делается скриншот, рядом подтягивается **кадр из Figma** по API, строится **diff**, маленькая **CNN** смотрит на карту отличий, модель в **Ollama** (например Gemma) пишет **что не совпало с макетом**.
 
-Внутри: числовой diff, опционально **CNN** по карте отличий и **текстовый отчёт** (что именно не совпало с макетом) через Gemma в Ollama.
+Раньше в проекте был режим «два URL друг против друга» — он убран. Осталось только сравнение **вёрстка ↔ Figma**.
 
-Демо-макет в Figma: [Test — node 19:2](https://www.figma.com/design/KqJfoHyA6re2zYzDmriMT2/Test?node-id=19-2).
+### Где «папка с сайтом»
 
-## Быстрый старт
+В репозитории есть папка **`site`** — это **демо-вёрстка** (статический HTML/CSS), чтобы сразу было что открыть и сравнить с Figma. Её можно править под свой макет или **не использовать** и указать в `url_site` адрес своего проекта (Vite и т.д.).
 
-1. Python 3.10+, установленный **Google Chrome** (Selenium использует встроенный менеджер драйвера).
-2. Скопируйте `config.example.json` → `config.json` и пропишите URL.
-3. Установка зависимостей:
+Подробные шаги для `site` — файл **`site/ЗАПУСК.txt`**.
 
-```bash
+---
+
+## Что нужно на компьютере
+
+1. **Python 3.10+**
+2. **Google Chrome** (для Selenium)
+3. **Токен Figma** — [Figma → Settings → Personal access tokens](https://www.figma.com/developers/api#access-tokens)  
+   Токен **ни в git, ни в скриншоты** — только переменная окружения.
+4. **Ollama** с vision-моделью (если нужен текстовый отчёт о багах). Имя модели — в `config.json` → `gemma_model`.
+
+---
+
+## Установка
+
+```powershell
+cd "путь\к\папке\нейросеть"
 pip install -r requirements.txt
 ```
 
-4. (Опционально) Ollama с моделью, имя которой указано в `gemma_model` (например `gemma3`).
+Скопируй `config.example.json` в `config.json` и поправь:
 
-### Десктоп (Tkinter)
+| Поле | Смысл |
+|------|--------|
+| `url_site` | URL страницы: для демо из папки `site` обычно **`http://127.0.0.1:8080`** (см. `site/ЗАПУСК.txt`); свой проект — как выдаёт `npm run dev` |
+| `window_size` | Ширина×высота окна браузера для скрина (как в макете) |
+| `figma.file_key` | Из ссылки `figma.com/design/**KEY**/…` |
+| `figma.node_id` | Из `node-id=19-2` в URL → в конфиге пиши **`19:2`** |
+| `figma.design_png` | Куда кэшировать PNG кадра из Figma |
+| `figma.scale` | Масштаб экспорта (1–4), чаще 2 |
 
-```bash
-python app.py
+---
+
+## Как запустить тест (3 способа)
+
+### A) Консоль (самый простой)
+
+1. Запусти **сайт** — для демо из этой же репы:
+   ```powershell
+   cd "путь\к\нейросеть\site"
+   python -m http.server 8080
+   ```
+   В `config.json` тогда **`url_site`**: `http://127.0.0.1:8080`  
+   (Свой фронт на npm — в **его** папке `npm run dev`, в конфиге тот URL, что выведет терминал.)
+2. В **новом** окне PowerShell:
+
+```powershell
+cd "путь\к\нейросеть"
+$env:FIGMA_ACCESS_TOKEN = "твой_токен"
+python run_tests.py
 ```
 
-### Веб-интерфейс
+Скрипт сам скачает макет из Figma, снимет страницу с `url_site`, сравнит, положит отчёт в `reports/`, артефакты в `reports/witness_*` и `shots/`.
 
-```bash
+Другой URL без правки конфига:
+
+```powershell
+python run_tests.py --url http://127.0.0.1:3000
+```
+
+### B) Веб-панель
+
+Токен должен быть в **том же** окружении, откуда стартуешь сервер:
+
+```powershell
+$env:FIGMA_ACCESS_TOKEN = "твой_токен"
 python web_server.py
 ```
 
-Откройте `http://127.0.0.1:8765` — панель теста: эталон vs проверяемый сайт, лог и разбор от модели.
+Открой в браузере: **http://127.0.0.1:8765** → укажи URL страницы (и при необходимости file key / node id) → **Сравнить с макетом**.
 
-### CLI: эталон (прод) vs тестируемая локалка
-
-```bash
-python run_tests.py --real https://example.com --local http://127.0.0.1:5173
-```
-
-### CLI: **макет Figma vs тестируемый сайт**
-
-Нужен [Personal Access Token](https://www.figma.com/developers/api#access-tokens) Figma. **Не коммитьте токен** — только переменная окружения.
-
-PowerShell:
+### C) Окно Tkinter
 
 ```powershell
-$env:FIGMA_ACCESS_TOKEN = "ваш_токен"
-python run_tests.py --figma-vs-local --local http://127.0.0.1:5173
+$env:FIGMA_ACCESS_TOKEN = "твой_токен"
+python app.py
 ```
 
-Ключ файла и `node_id` берутся из `config.json` → секция `figma` (в примере уже указаны `file_key` и `19:2`). В ссылке Figma `node-id=19-2` в API передаётся как **`19:2`**.
+---
 
-Переопределение из командной строки:
+## Обучить CNN
 
-```bash
-python run_tests.py --figma-vs-local --figma-file KqJfoHyA6re2zYzDmriMT2 --figma-node 19:2 --local http://127.0.0.1:3000
+CNN учится на **маленьких ч/б картинках 64×64** — это кропы **карты diff** (как в пайплайне), классы `pass` / `fail`.
+
+**Быстрый старт (синтетика для проверки, что всё запускается):**
+
+```powershell
+python scripts/bootstrap_train_dataset.py
+python train.py --epochs 25 --out weights/diff_cnn.pt
 ```
 
-### Скачать PNG и JSON узла из Figma
+Появится `weights/diff_cnn.pt`. В реальном дипломе лучше заменить содержимое `data/train/pass` и `data/train/fail` на **свои** кропы diff из папок `shots/diffs` после прогонов (ручная разметка «баг / ок»).
 
-```bash
-set FIGMA_ACCESS_TOKEN=...
-python figma_pull.py --file KqJfoHyA6re2zYzDmriMT2 --node 19:2 --out storage/designs/frame.png --json-out figma_node_export.json
+В интерфейсах галочка **CNN по diff** подключает этот файл.
+
+---
+
+## Как это находит и описывает баги
+
+1. **Пиксели** — процент отличающихся пикселей после допусков (сдвиг, opening), порог в `diff_threshold_pct`.
+2. **CNN** — дополнительный сигнал по текстуре diff (может подсветить «опасный» diff при пограничном %).
+3. **Ollama** — по метрикам и картинке diff генерирует **текст**: резюме, список вероятных багов, зона экрана (см. `src/gemma_client.py`).
+
+Без Ollama останутся числа, diff-картинка и отчёт в `reports/*.txt`.
+
+---
+
+## Вспомогательно: только выгрузить PNG из Figma
+
+```powershell
+$env:FIGMA_ACCESS_TOKEN = "…"
+python figma_pull.py --file КЛЮЧ_ФАЙЛА --node 19:2 --out storage/designs/maket.png
 ```
 
-## Обучение CNN
+---
 
-После обновления архитектуры сети старый файл `weights/diff_cnn.pt` может **не загрузиться** — переобучите:
+## Структура
 
-```bash
-python train.py --data data/train --out weights/diff_cnn.pt --epochs 30
-```
+| Файл / папка | Назначение |
+|--------------|------------|
+| `run_tests.py` | CLI: один прогон |
+| `web_server.py` | Локальный сайт-панель |
+| `app.py` | Десктоп-панель |
+| `src/pipeline.py` | `run_figma_vs_site` + `run_pipeline` |
+| `src/compare.py` | Diff и метрики |
+| `src/model_net.py` | CNN |
+| `src/gemma_client.py` | Запрос к Ollama |
+| `figma_pull.py` | Отдельная выгрузка кадра |
+| `scripts/bootstrap_train_dataset.py` | Синтетика для первого обучения |
 
-Структура данных: `data/train/pass/*.png` и `data/train/fail/*.png` — **grayscale-кропы карт diff** (как в пайплайне, 64×64).
-
-## Зачем нейросеть и LLM при тесте «сайт vs макет», если есть попиксельное сравнение?
-
-| Попиксельный diff | CNN + VLM (Gemma) |
-|-------------------|-------------------|
-| Доля изменённых пикселей и heatmap | CNN: отдельный сигнал «опасный» паттерн diff даже при пограничном % |
-| Не объясняет *что* сломано в терминах UI | Текст: **какой блок**, отступ, шрифт, зона экрана |
-| Шум от антиалиаса, скролла, даты/времени | Промпт учитывает допуски (сдвиг, opening) и просит **семантическую** интерпретацию |
-
-Для диплома имеет смысл завести небольшую **ручную разметку** (есть баг / нет) и сравнить: только порог по %, порог + CNN, полный конвейер с отчётом LLM — см. идеи в `src/metrics.py` (`suggest_diploma_metrics`).
+---
 
 ## Безопасность
 
-- Файл `config.json` и любые токены — в **`.gitignore`** (шаблон уже в репозитории).
-- Если токен Figma когда-либо попадал в чат, почту или скриншот — **отзовите его** в настройках Figma и выпустите новый.
-
-## Структура проекта
-
-| Путь | Назначение |
-|------|------------|
-| `app.py` | Десктоп-панель теста (Tkinter) |
-| `web_server.py` | Веб-панель теста (Flask) |
-| `run_tests.py` | CLI: прогон тестов, в т.ч. макет Figma vs сайт |
-| `figma_pull.py` | Подтягивание кадра макета (PNG / JSON) из Figma |
-| `src/pipeline.py` | Скриншоты страниц, сравнение с эталоном, отчёт |
-| `src/compare.py` | Метрики diff, heatmap |
-| `src/gemma_client.py` | Текстовый отчёт о расхождениях с макетом (Ollama) |
-| `src/model_net.py` | CNN по карте diff |
-| `src/metrics.py` | Идеи метрик качества теста для диплома |
-
-## Лицензия и диплом
-
-Проект учебный; при оформлении работы укажите версии Python, Chrome, Ollama и модели VLM.
+`config.json` с токенами не коммить — в `.gitignore` уже есть шаблон. Для Figma используй только **`FIGMA_ACCESS_TOKEN`** в окружении.

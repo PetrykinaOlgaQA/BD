@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import os
 import time
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
@@ -10,8 +11,10 @@ import requests
 from PIL import Image
 from urllib3.exceptions import IncompleteRead, ProtocolError
 
-# Большой diff — ужимаем для стабильного POST на localhost.
-_OLLAMA_IMAGE_MAX_SIDE = 960
+# Vision в Ollama на длинной странице + большой diff → «memory layout cannot be allocated»; держим картинку маленькой.
+_OLLAMA_IMAGE_MAX_SIDE = 512
+_OLLAMA_OPTIONS_DEFAULT: Dict[str, Any] = {"num_predict": 768, "num_ctx": 6144}
+_OLLAMA_OPTIONS_LIGHT: Dict[str, Any] = {"num_predict": 512, "num_ctx": 4096}
 # connect, read: первая генерация после простоя может грузить веса долго; read до 15 мин.
 _OLLAMA_TIMEOUT = (90, 900)
 _OLLAMA_POST_RETRIES = 4
@@ -28,13 +31,18 @@ def _ollama_tag_names(base_url: str) -> List[str]:
 
 
 def _resolve_model_name(base_url: str, model: str) -> str:
-    """Сопоставляет имя из config с тегом из ollama list (например gemma3 → gemma3:latest)."""
+    """Сопоставляет имя из config с тегом из ollama list (llava:latest ↔ llava, gemma3 → gemma3:latest)."""
     want = (model or "").strip()
     if not want:
         return want
     names = _ollama_tag_names(base_url)
     if want in names:
         return want
+    # В списке только «llava», в config «llava:latest» — Ollama так не находит.
+    if ":" in want:
+        bare = want.split(":")[0]
+        if bare in names:
+            return bare
     base = want.split(":")[0]
     for n in names:
         if n == f"{base}:latest" or (n.startswith(base + ":") and not n.endswith("-runner")):
@@ -42,6 +50,9 @@ def _resolve_model_name(base_url: str, model: str) -> str:
     for n in names:
         if n.split(":")[0] == base:
             return n
+    # Один образ на машине — подставляем его (часто в config осталось llava, а стоит только gemma3:latest).
+    if names and want not in names and len(names) == 1:
+        return names[0]
     return want
 
 
@@ -99,18 +110,20 @@ def ollama_chat(
     model: str,
     prompt: str,
     images_b64: Optional[List[str]] = None,
+    ollama_options: Optional[Dict[str, Any]] = None,
 ) -> str:
     """POST /api/chat — предпочтительный путь для vision-моделей в Ollama."""
     url = base_url.rstrip("/") + "/api/chat"
     msg: Dict[str, Any] = {"role": "user", "content": prompt}
     if images_b64:
         msg["images"] = images_b64
+    opts = {**_OLLAMA_OPTIONS_DEFAULT, **(ollama_options or {})}
     payload: Dict[str, Any] = {
         "model": model,
         "messages": [msg],
         "stream": False,
         "keep_alive": "15m",
-        "options": {"num_predict": 2048},
+        "options": opts,
     }
     r = _post_json_with_retries(url, payload)
     r.raise_for_status()
@@ -130,15 +143,17 @@ def ollama_generate(
     model: str,
     prompt: str,
     images_b64: Optional[List[str]] = None,
+    ollama_options: Optional[Dict[str, Any]] = None,
 ) -> str:
     """POST /api/generate — запасной вариант для старых сборок / текстовых моделей."""
     url = base_url.rstrip("/") + "/api/generate"
+    opts = {**_OLLAMA_OPTIONS_DEFAULT, **(ollama_options or {})}
     payload: Dict[str, Any] = {
         "model": model,
         "prompt": prompt,
         "stream": False,
         "keep_alive": "15m",
-        "options": {"num_predict": 2048},
+        "options": opts,
     }
     if images_b64:
         payload["images"] = images_b64
@@ -159,8 +174,13 @@ def image_to_b64(path: str) -> str:
         return base64.b64encode(f.read()).decode("ascii")
 
 
-def image_to_b64_for_ollama(path: str, max_side: int = _OLLAMA_IMAGE_MAX_SIDE) -> str:
-    """PNG/JPEG → base64; длинная сторона не больше max_side (меньше сбоев vision в Ollama)."""
+def image_to_b64_for_ollama(
+    path: str,
+    max_side: int = _OLLAMA_IMAGE_MAX_SIDE,
+    quality: int = 72,
+) -> str:
+    """PNG/JPEG → base64; длинная сторона не больше max_side (меньше RAM vision в Ollama)."""
+    q = max(40, min(92, int(quality)))
     with Image.open(path) as im:
         im = im.convert("RGB")
         w, h = im.size
@@ -169,7 +189,7 @@ def image_to_b64_for_ollama(path: str, max_side: int = _OLLAMA_IMAGE_MAX_SIDE) -
             scale = max_side / float(m)
             im = im.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.Resampling.LANCZOS)
         buf = io.BytesIO()
-        im.save(buf, format="JPEG", quality=80)
+        im.save(buf, format="JPEG", quality=q)
         return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
@@ -203,9 +223,13 @@ def _human_ollama_failure(
     if isinstance(exc, requests.HTTPError) and response is not None:
         detail = _ollama_error_body(response) or str(exc)
         if response.status_code == 404:
+            hint = _ollama_list_models_hint(base_url)
+            base = (model or "").strip().split(":")[0] or model
             return (
-                f"[Gemma/Ollama: модель не найдена (HTTP 404).]\n"
-                f"Установи: ollama pull {model}\n"
+                "[Gemma/Ollama: модель не найдена (HTTP 404).]\n"
+                f"Скачай образ (имя как в «ollama list»), чаще всего: ollama pull {base}\n"
+                f"В config.json укажи gemma_model точно как в списке ниже (например llava или llava:7b).\n"
+                f"Модели на {base_url}: {hint}\n"
                 f"Сообщение сервера: {detail}"
             )
         return f"[Gemma/Ollama: HTTP {response.status_code}]\n{detail}"
@@ -230,10 +254,11 @@ def _try_ollama(
     model: str,
     prompt: str,
     images_b64: Optional[List[str]],
+    ollama_options: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Optional[str], Optional[str]]:
     """(текст_ответа_или_None, краткая_ошибка_или_None)."""
     try:
-        t = fn(base_url, model, prompt, images_b64=images_b64)
+        t = fn(base_url, model, prompt, images_b64, ollama_options)
         text = (t or "").strip()
         return (text if text else None, None)
     except requests.Timeout as e:
@@ -252,15 +277,30 @@ def _try_ollama(
         return (None, f"{fn.__name__}: {e!s}")
 
 
+def _notes_indicate_oom(notes: List[str]) -> bool:
+    blob = " ".join(notes).lower()
+    return any(
+        k in blob
+        for k in (
+            "memory layout",
+            "cannot be allocated",
+            "out of memory",
+            "insufficient memory",
+        )
+    )
+
+
 def _call_ollama_with_fallbacks(
     base_url: str,
     model: str,
     prompt: str,
     images_b64: Optional[List[str]],
+    diff_image_path: Optional[str] = None,
 ) -> str:
     """
     Сначала /api/chat с изображением (актуальный путь для Gemma3 vision),
     затем /api/generate с изображением, затем оба варианта только по тексту (метрики).
+    При HTTP 500 «memory…» — повтор с меньшим diff и num_ctx.
     """
     resolved = _resolve_model_name(base_url, model)
     notes: List[str] = []
@@ -268,39 +308,79 @@ def _call_ollama_with_fallbacks(
         notes.append(f"Имя модели из config «{model}» заменено на «{resolved}» (как в ollama list).")
     model = resolved
 
-    def one(fn: Callable[..., str], imgs: Optional[List[str]]) -> Optional[str]:
-        got, err = _try_ollama(fn, base_url, model, prompt, imgs)
+    def one(
+        fn: Callable[..., str],
+        imgs: Optional[List[str]],
+        ollama_options: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        got, err = _try_ollama(fn, base_url, model, prompt, imgs, ollama_options)
         if err:
             notes.append(err)
         return got
 
     if images_b64:
         for fn in (ollama_chat, ollama_generate):
-            got = one(fn, images_b64)
+            got = one(fn, images_b64, None)
             if got:
                 return got
+
+        if diff_image_path and os.path.isfile(diff_image_path) and _notes_indicate_oom(notes):
+            notes.append("— повтор: diff 384px, num_ctx↓ (нехватка памяти Ollama)")
+            tiny384 = [image_to_b64_for_ollama(diff_image_path, max_side=384, quality=65)]
+            for fn in (ollama_chat, ollama_generate):
+                got = one(fn, tiny384, _OLLAMA_OPTIONS_LIGHT)
+                if got:
+                    return (
+                        got
+                        + "\n\n(Ответ по уменьшенному diff: у Ollama не хватило памяти на полноразмерную картинку.)"
+                    )
+            notes.append("— повтор: diff 256px")
+            tiny256 = [image_to_b64_for_ollama(diff_image_path, max_side=256, quality=58)]
+            for fn in (ollama_chat, ollama_generate):
+                got = one(fn, tiny256, _OLLAMA_OPTIONS_LIGHT)
+                if got:
+                    return (
+                        got
+                        + "\n\n(Ответ по сильно уменьшенному diff из‑за ошибки памяти vision в Ollama.)"
+                    )
+
         note = (
             "\n\n(Ответ без просмотра diff-картинки: не удалось передать изображение в Ollama в штатном режиме; "
             "обнови Ollama или проверь, что gemma_model — vision-модель.)"
         )
         for fn in (ollama_chat, ollama_generate):
-            got = one(fn, None)
+            got = one(fn, None, _OLLAMA_OPTIONS_LIGHT)
             if got:
                 return got + note
-
-    for fn in (ollama_chat, ollama_generate):
-        got = one(fn, None)
-        if got:
-            return got
+        for fn in (ollama_chat, ollama_generate):
+            got = one(fn, None, None)
+            if got:
+                return got + note
+    else:
+        for fn in (ollama_chat, ollama_generate):
+            got = one(fn, None, _OLLAMA_OPTIONS_LIGHT)
+            if got:
+                return got
+        for fn in (ollama_chat, ollama_generate):
+            got = one(fn, None, None)
+            if got:
+                return got
 
     tags = _ollama_list_models_hint(base_url)
     detail = "\n".join(notes) if notes else "(подробности не собраны — смотри окно Ollama / journalctl)"
+    oom_hint = ""
+    if _notes_indicate_oom(notes):
+        oom_hint = (
+            "\nПамять (RAM/VRAM): закройте браузеры и тяжёлые приложения, в PowerShell выполните `ollama ps` и при необходимости "
+            "`ollama stop`, уменьшите окно скрина в config (window_size) или отключите картинку diff в UI (`--no-gemma-image`).\n"
+        )
     raise RuntimeError(
         "Пустой ответ от Ollama: все варианты (/api/chat и /api/generate, с картинкой и без) вернули пустой текст.\n"
         f"Использовалась модель: «{model}» (ollama pull {model}).\n"
-        "Если в логах только «обрыв соединения» при этом /api/tags работает — закройте лишние программы, "
+        + oom_hint
+        + "Если в логах только «обрыв соединения» при этом /api/tags работает — закройте лишние программы, "
         "обновите Ollama, либо в config.json попробуйте ollama_url: http://localhost:11434 вместо 127.0.0.1.\n"
-        "Для diff нужна vision-модель (gemma3:latest, llava и т.д.).\n"
+        "Для diff нужна vision-модель (llava, qwen2.5vl и т.д.).\n"
         f"Модели на сервере ({base_url}): {tags}\n"
         "Что пробовали:\n"
         f"{detail}"
@@ -391,7 +471,8 @@ def explain_diff_ru(
                 imgs = None
 
     try:
-        return _call_ollama_with_fallbacks(base_url, model, prompt, imgs)
+        retry_path = diff_image_path if (use_image and diff_image_path and imgs) else None
+        return _call_ollama_with_fallbacks(base_url, model, prompt, imgs, diff_image_path=retry_path)
     except requests.HTTPError as e:
         return _human_ollama_failure(base_url, model, e, response=e.response)
     except (requests.ConnectionError, requests.Timeout) as e:

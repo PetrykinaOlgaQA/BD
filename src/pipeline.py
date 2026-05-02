@@ -33,6 +33,7 @@ class RunConfig:
     tolerance_shift_px: int = 0
     tolerance_speckle_iter: int = 0
     pixel_threshold: int = 30
+    capture_wait_seconds: float = 12.0
     baseline_is_figma: bool = False  # True = эталон из Figma (для промпта к VLM)
     figma_file_key: Optional[str] = None
     figma_node_id: Optional[str] = None
@@ -67,7 +68,12 @@ def run_pipeline(cfg: RunConfig) -> RunOutcome:
     os.makedirs(cfg.screenshot_dir, exist_ok=True)
     ts = int(time.time() * 1000)
     cur = os.path.join(cfg.screenshot_dir, f"current_{ts}.png")
-    _, layout_site = capture_screenshot(cfg.url, cur, window_size=cfg.window_size)
+    _, layout_site = capture_screenshot(
+        cfg.url,
+        cur,
+        window_size=cfg.window_size,
+        wait_seconds=float(cfg.capture_wait_seconds),
+    )
     diff_dir = os.path.join(cfg.screenshot_dir, "diffs")
     cr = compare_screenshots(
         cfg.baseline_path,
@@ -197,11 +203,13 @@ class FigmaVsSiteConfig:
     figma_token: str
     figma_baseline_png: str
     figma_scale: int = 1
+    figma_use_cached_png: bool = True
+    capture_wait_seconds: float = 12.0
     screenshot_dir: str = "shots"
     reports_dir: str = "reports"
     diff_threshold_pct: float = 0.5
     ollama_url: str = "http://127.0.0.1:11434"
-    gemma_model: str = "gemma3"
+    gemma_model: str = "gemma3:latest"
     use_gemma: bool = True
     model_path: Optional[str] = None
     use_model: bool = False
@@ -220,16 +228,32 @@ def run_figma_vs_site(
         if log:
             log(s)
 
-    L("Шаг 1/2: загружаю кадр макета из Figma…")
     os.makedirs(os.path.dirname(cfg.figma_baseline_png) or ".", exist_ok=True)
-    export_frame_png(
-        cfg.figma_file_key,
-        cfg.figma_node_id,
-        cfg.figma_token,
-        cfg.figma_baseline_png,
-        scale=max(1, min(4, int(cfg.figma_scale))),
+    force_figma = os.environ.get("FIGMA_FORCE_REFRESH", "").strip().lower() in ("1", "true", "yes")
+    png_path = cfg.figma_baseline_png
+    cached_ok = (
+        cfg.figma_use_cached_png
+        and not force_figma
+        and os.path.isfile(png_path)
+        and os.path.getsize(png_path) > 64
     )
-    L(f"         макет сохранён: {cfg.figma_baseline_png}")
+    if cached_ok:
+        L(
+            "Шаг 1/2: кэш макета — беру уже скачанный PNG (без запроса к Figma API). "
+            "Чтобы обновить из макета: FIGMA_FORCE_REFRESH=1 или figma.use_cached_png=false в config."
+        )
+        L(f"         файл: {png_path}")
+    else:
+        L("Шаг 1/2: загружаю кадр макета из Figma…")
+        export_frame_png(
+            cfg.figma_file_key,
+            cfg.figma_node_id,
+            cfg.figma_token,
+            png_path,
+            scale=max(1, min(4, int(cfg.figma_scale))),
+            log=L if log else None,
+        )
+        L(f"         макет сохранён: {png_path}")
     L("Шаг 2/2: скриншот сайта и сравнение с макетом…")
     rc = RunConfig(
         url=cfg.site_url,
@@ -247,6 +271,7 @@ def run_figma_vs_site(
         tolerance_shift_px=cfg.tolerance_shift_px,
         tolerance_speckle_iter=cfg.tolerance_speckle_iter,
         pixel_threshold=cfg.pixel_threshold,
+        capture_wait_seconds=float(cfg.capture_wait_seconds),
         baseline_is_figma=True,
         figma_file_key=cfg.figma_file_key,
         figma_node_id=cfg.figma_node_id,

@@ -23,9 +23,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.getElementById("urlSite").value = c.url_site || "";
     document.getElementById("figmaKey").value = c.figma_file_key || "";
     document.getElementById("figmaNode").value = c.figma_node_id || "";
-    document.getElementById("figScale").value = c.figma_scale || 2;
+    document.getElementById("figScale").value = c.figma_scale || 1;
     document.getElementById("winW").value = c.window_w;
     document.getElementById("winH").value = c.window_h;
+    document.getElementById("capWait").value =
+      c.capture_wait_seconds != null ? c.capture_wait_seconds : 12;
     document.getElementById("thr").value = c.diff_threshold_pct;
     document.getElementById("pixThr").value = c.pixel_threshold;
     document.getElementById("shift").value = c.tolerance_shift_px;
@@ -57,6 +59,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       pixel_threshold: parseInt(document.getElementById("pixThr").value, 10),
       tolerance_shift_px: parseInt(document.getElementById("shift").value, 10),
       tolerance_speckle_iter: parseInt(document.getElementById("speck").value, 10),
+      capture_wait_seconds: parseFloat(
+        String(document.getElementById("capWait").value).replace(",", ".")
+      ),
       use_gemma: document.getElementById("useGemma").checked,
       use_model: document.getElementById("useModel").checked,
       gemma_use_image: document.getElementById("gemmaImg").checked,

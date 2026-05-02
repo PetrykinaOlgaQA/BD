@@ -180,6 +180,11 @@ class App(tk.Tk):
 
         out_png = os.path.join(ROOT, fg.get("design_png", "storage/designs/figma_baseline_last.png"))
         os.makedirs(os.path.dirname(out_png) or ".", exist_ok=True)
+        try:
+            cap_wait = float(c.get("capture_wait_seconds", 12))
+        except (TypeError, ValueError):
+            cap_wait = 12.0
+        cap_wait = max(0.0, min(120.0, cap_wait))
 
         fcfg = FigmaVsSiteConfig(
             site_url=site,
@@ -188,11 +193,13 @@ class App(tk.Tk):
             figma_token=tok,
             figma_baseline_png=out_png,
             figma_scale=int(fg.get("scale", 1)),
+            figma_use_cached_png=bool(fg.get("use_cached_png", True)),
+            capture_wait_seconds=cap_wait,
             screenshot_dir=os.path.join(ROOT, c.get("screenshot_dir", "shots")),
             reports_dir=os.path.join(ROOT, c.get("reports_dir", "reports")),
             diff_threshold_pct=thr,
             ollama_url=c.get("ollama_url", "http://127.0.0.1:11434"),
-            gemma_model=c.get("gemma_model", "gemma3"),
+            gemma_model=c.get("gemma_model", "gemma3:latest"),
             use_gemma=self.use_gemma.get(),
             model_path=os.path.join(ROOT, c.get("model_path", "weights/diff_cnn.pt")),
             use_model=self.use_model.get(),

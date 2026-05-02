@@ -39,6 +39,7 @@ def api_config():
             "url_site": c.get("url_site", c.get("url_local", "")),
             "figma_file_key": fg.get("file_key", ""),
             "figma_node_id": fg.get("node_id", ""),
+            "figma_use_cached_png": bool(fg.get("use_cached_png", True)),
             "window_w": int(w),
             "window_h": int(h),
             "diff_threshold_pct": float(c.get("diff_threshold_pct", 0.5)),
@@ -46,8 +47,9 @@ def api_config():
             "tolerance_speckle_iter": int(c.get("tolerance_speckle_iter", 1)),
             "pixel_threshold": int(c.get("pixel_threshold", 30)),
             "ollama_url": c.get("ollama_url", "http://127.0.0.1:11434"),
-            "gemma_model": c.get("gemma_model", "gemma3"),
+            "gemma_model": c.get("gemma_model", "gemma3:latest"),
             "figma_scale": int(fg.get("scale", 1)),
+            "capture_wait_seconds": float(c.get("capture_wait_seconds", 12)),
         }
     )
 
@@ -68,6 +70,8 @@ def api_run():
         sp = max(0, min(5, int(body.get("tolerance_speckle_iter", c.get("tolerance_speckle_iter", 1)))))
         px = max(0, min(255, int(body.get("pixel_threshold", c.get("pixel_threshold", 30)))))
         scale = max(1, min(4, int(body.get("figma_scale", (c.get("figma") or {}).get("scale", 1)))))
+        cap_wait = float(body.get("capture_wait_seconds", c.get("capture_wait_seconds", 12)))
+        cap_wait = max(0.0, min(120.0, cap_wait))
     except (TypeError, ValueError):
         return jsonify({"error": "Некорректные числа"}), 400
 
@@ -84,6 +88,11 @@ def api_run():
     use_gemma = bool(body.get("use_gemma", True))
     use_model = bool(body.get("use_model", True))
     gemma_img = bool(body.get("gemma_use_image", True))
+    figma_use_cached = bool(fg.get("use_cached_png", True))
+    if body.get("figma_refresh") or body.get("figma_force_refresh"):
+        figma_use_cached = False
+    if "figma_use_cached_png" in body:
+        figma_use_cached = bool(body.get("figma_use_cached_png"))
     logs: List[str] = []
 
     def log(msg: str) -> None:
@@ -96,11 +105,12 @@ def api_run():
         figma_token=tok,
         figma_baseline_png=out_png,
         figma_scale=scale,
+        figma_use_cached_png=figma_use_cached,
         screenshot_dir=os.path.join(ROOT, c.get("screenshot_dir", "shots")),
         reports_dir=os.path.join(ROOT, c.get("reports_dir", "reports")),
         diff_threshold_pct=thr,
         ollama_url=(body.get("ollama_url") or c.get("ollama_url", "http://127.0.0.1:11434")).rstrip("/"),
-        gemma_model=body.get("gemma_model") or c.get("gemma_model", "gemma3"),
+        gemma_model=body.get("gemma_model") or c.get("gemma_model", "gemma3:latest"),
         use_gemma=use_gemma,
         model_path=os.path.join(ROOT, c.get("model_path", "weights/diff_cnn.pt")),
         use_model=use_model,
@@ -109,6 +119,7 @@ def api_run():
         tolerance_shift_px=sh,
         tolerance_speckle_iter=sp,
         pixel_threshold=px,
+        capture_wait_seconds=cap_wait,
     )
 
     try:

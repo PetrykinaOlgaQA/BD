@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 from urllib.parse import quote
 
 import requests
@@ -16,7 +16,7 @@ _READ_TIMEOUT = 360
 _CHUNK = 256 * 1024
 _MAX_NOT_FOUND_STREAK = 12
 _MAX_DOWNLOAD_ATTEMPTS = 48
-_FIGMA_API_MAX_ATTEMPTS = 14
+_FIGMA_API_MAX_ATTEMPTS = 8
 
 
 def _figma_retry_sleep_seconds(response: requests.Response, attempt: int) -> float:
@@ -27,10 +27,15 @@ def _figma_retry_sleep_seconds(response: requests.Response, attempt: int) -> flo
             return max(1.0, min(float(h.strip()), 120.0))
         except ValueError:
             pass
-    return min(2.5 * (1.65 ** attempt), 90.0)
+    return min(2.0 * (1.45 ** attempt), 45.0)
 
 
-def _figma_api_get(url: str, token: str, timeout: int = 120) -> requests.Response:
+def _figma_api_get(
+    url: str,
+    token: str,
+    timeout: int = 120,
+    log: Optional[Callable[[str], None]] = None,
+) -> requests.Response:
     """GET к api.figma.com с повторами при 429 Too Many Requests и 5xx."""
     headers = {"X-Figma-Token": token}
     last: Optional[requests.Response] = None
@@ -38,9 +43,14 @@ def _figma_api_get(url: str, token: str, timeout: int = 120) -> requests.Respons
         r = requests.get(url, headers=headers, timeout=timeout)
         last = r
         if r.status_code == 429:
-            time.sleep(_figma_retry_sleep_seconds(r, attempt))
+            wait = _figma_retry_sleep_seconds(r, attempt)
+            if log:
+                log(f"         Figma: лимит запросов (429), пауза {wait:.1f} с ({attempt + 1}/{_FIGMA_API_MAX_ATTEMPTS})…")
+            time.sleep(wait)
             continue
         if r.status_code >= 500:
+            if log:
+                log(f"         Figma: HTTP {r.status_code}, повтор через пару секунд…")
             time.sleep(min(2.0 + attempt * 1.5, 25.0))
             continue
         r.raise_for_status()
@@ -59,7 +69,7 @@ def fetch_file_nodes_json(
     """GET /v1/files/{key}/nodes — дерево узлов для указанных id (формат id: «19:2»)."""
     nid = quote(node_id, safe=":")
     url = f"https://api.figma.com/v1/files/{file_key}/nodes?ids={nid}"
-    r = _figma_api_get(url, token, timeout=timeout)
+    r = _figma_api_get(url, token, timeout=timeout, log=None)
     return r.json()
 
 
@@ -103,11 +113,14 @@ def export_frame_png(
     out_path: str,
     scale: int = 2,
     timeout: int = 120,
+    log: Optional[Callable[[str], None]] = None,
 ) -> str:
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     nid = quote(node_id, safe=":")
     api_url = f"https://api.figma.com/v1/images/{file_key}?ids={nid}&format=png&scale={scale}"
-    r = _figma_api_get(api_url, token, timeout=timeout)
+    if log:
+        log("         запрос URL рендера к Figma API…")
+    r = _figma_api_get(api_url, token, timeout=timeout, log=log)
     data = r.json()
     err = data.get("err")
     if err:
@@ -130,6 +143,8 @@ def export_frame_png(
 
     for attempt in range(_MAX_DOWNLOAD_ATTEMPTS):
         try:
+            if log and attempt > 0 and attempt % 8 == 0:
+                log(f"         скачивание PNG с CDN, попытка {attempt + 1}/{_MAX_DOWNLOAD_ATTEMPTS}…")
             _download_png_stream(img_url, out_path, timeout=dl_timeout)
             return out_path
         except FileNotFoundError:

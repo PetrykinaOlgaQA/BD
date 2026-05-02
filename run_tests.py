@@ -31,6 +31,11 @@ def main():
     ap.add_argument("--no-model", action="store_true")
     ap.add_argument("--no-gemma-image", action="store_true")
     ap.add_argument("--figma-scale", type=int, default=None, help="масштаб PNG из Figma (1–4)")
+    ap.add_argument(
+        "--figma-refresh",
+        action="store_true",
+        help="всегда заново выгрузить макет из Figma (игнор кэша PNG на диске и FIGMA_FORCE_REFRESH не нужен)",
+    )
     args = ap.parse_args()
 
     cfg_path = args.config
@@ -51,7 +56,13 @@ def main():
 
     out_png = _join(ROOT, fg.get("design_png", "storage/designs/figma_baseline_last.png"))
     w, h = tuple(raw.get("window_size", [1280, 720]))
-    scale = int(args.figma_scale if args.figma_scale is not None else fg.get("scale", 2))
+    scale = int(args.figma_scale if args.figma_scale is not None else fg.get("scale", 1))
+    figma_use_cached = bool(fg.get("use_cached_png", True)) and not args.figma_refresh
+    try:
+        cap_wait = float(raw.get("capture_wait_seconds", 12))
+    except (TypeError, ValueError):
+        cap_wait = 12.0
+    cap_wait = max(0.0, min(120.0, cap_wait))
 
     fcfg = FigmaVsSiteConfig(
         site_url=site,
@@ -60,11 +71,13 @@ def main():
         figma_token=tok,
         figma_baseline_png=out_png,
         figma_scale=scale,
+        figma_use_cached_png=figma_use_cached,
+        capture_wait_seconds=cap_wait,
         screenshot_dir=_join(ROOT, raw.get("screenshot_dir", "shots")),
         reports_dir=_join(ROOT, raw.get("reports_dir", "reports")),
         diff_threshold_pct=float(raw.get("diff_threshold_pct", 0.5)),
         ollama_url=raw.get("ollama_url", "http://127.0.0.1:11434"),
-        gemma_model=raw.get("gemma_model", "gemma3"),
+        gemma_model=raw.get("gemma_model", "gemma3:latest"),
         use_gemma=not args.no_gemma,
         model_path=_join(ROOT, raw.get("model_path", "weights/diff_cnn.pt")),
         use_model=not args.no_model,

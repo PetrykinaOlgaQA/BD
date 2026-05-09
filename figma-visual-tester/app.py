@@ -84,9 +84,9 @@ def main() -> None:
         st.info("Заполните поля и нажмите «Проверить страницу».")
         return
 
-    progress = st.progress(0, text="Старт…")
+    progress = st.progress(0.0, text="Старт…")
     try:
-        progress.progress(10, text="Загрузка изображений…")
+        progress.progress(0.1, text="Загрузка изображений…")
         if mode == "Локальные изображения":
             if not f_loc or not w_loc:
                 st.error("Нужны два файла: Figma и Website.")
@@ -115,7 +115,7 @@ def main() -> None:
                 wait_seconds=s.selenium_wait_sec,
             )
 
-        progress.progress(40, text="Построение diff…")
+        progress.progress(0.4, text="Построение diff…")
         diff_res = create_diff_map(
             figma,
             site,
@@ -123,7 +123,7 @@ def main() -> None:
             blur_ksize=s.diff_blur_ksize,
         )
 
-        progress.progress(55, text="CNN…")
+        progress.progress(0.55, text="CNN…")
         model, loaded, dev = _cached_cnn(str(s.cnn_weights_path))
         tensor = numpy_gray_to_tensor(diff_res.diff_gray_64)
         cnn = predict_diff(model, tensor, device=dev)
@@ -134,7 +134,7 @@ def main() -> None:
         bug_rep = None
         parse_err = None
         if use_vision:
-            progress.progress(70, text="Llama Vision (Ollama)…")
+            progress.progress(0.7, text="Llama Vision (Ollama)…")
             bug_rep, vision_raw, parse_err = analyze_with_llama_vision(
                 diff_res.aligned_figma,
                 diff_res.aligned_website,
@@ -149,7 +149,7 @@ def main() -> None:
                 fb = text_fallback_bug_report(vision_raw, parse_err)
                 vision_md = bug_report_to_markdown(fb) + "\n\n---\n**Сырой ответ модели:**\n```\n" + (vision_raw or "")[:12000] + "\n```"
 
-        progress.progress(90, text="Сохранение отчёта…")
+        progress.progress(0.9, text="Сохранение отчёта…")
         record = {
             "verdict": c_verdict,
             "cnn": cnn,
@@ -159,7 +159,7 @@ def main() -> None:
         if bug_rep is not None:
             record["vision"] = bug_rep.model_dump()
         append_report_history(s.reports_dir, record)
-        progress.progress(100, text="Готово")
+        progress.progress(1.0, text="Готово")
 
         st.divider()
         m1, m2, m3 = st.columns(3)
@@ -201,7 +201,7 @@ def main() -> None:
     except Exception as e:
         logger.exception("run")
         st.error(str(e))
-        progress.progress(100, text="Ошибка")
+        progress.progress(1.0, text="Ошибка")
 
 
 if __name__ == "__main__":

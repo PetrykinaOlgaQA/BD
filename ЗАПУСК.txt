@@ -1,0 +1,67 @@
+Figma Visual Tester AI — пошаговый запуск (Windows / PowerShell)
+================================================================
+
+1) Установка
+   - Python 3.11+
+   - Google Chrome
+   - Git (опционально)
+   - Ollama с vision-моделью (например gemma3:latest или llava) — для текстового отчёта
+
+   В каталоге проекта:
+   pip install -r requirements.txt
+
+2) Конфигурация
+   - Скопируй config.example.json → config.json
+   - Заполни figma.file_key и figma.node_id (из URL макета)
+   - Укажи url_site (локальный сервер демо-сайта или свой URL)
+   - PNG макета: figma.design_png (путь на диске). Если оставить пустым design_png,
+     при использовании src.config будет сгенерировано имя в shots/figma_cache/
+
+3) Токен Figma (не коммить в git)
+   $env:FIGMA_ACCESS_TOKEN = "figd_..."
+
+4) Демо-сайт из папки site (если используешь url_site http://127.0.0.1:8080)
+   cd site
+   python -m http.server 8080
+
+5) Прогон теста (новый терминал, из корня проекта)
+   cd "путь\к\нейросеть"
+   $env:FIGMA_ACCESS_TOKEN = "..."
+   python run_tests.py
+
+   Полезные флаги:
+   python run_tests.py --url http://127.0.0.1:3000
+   python run_tests.py --figma-refresh
+   python run_tests.py --no-gemma
+
+6) Веб-панель
+   $env:FIGMA_ACCESS_TOKEN = "..."
+   python web_server.py
+   Браузер: http://127.0.0.1:8765
+
+6a) Ollama — обязательно для блока «Что не совпало с макетом»
+   - Установи Ollama (ollama.com), запусти из меню «Пуск» или в отдельном окне: ollama serve
+   - Скачай vision-модель (для картинки diff): ollama pull moondream  (легче по RAM) или ollama pull llava
+   - В config.json укажи gemma_model / ollama.model как в ollama list (например moondream или llava:latest)
+   - Если Ollama пишет «requires more system memory» — llava не влезает в RAM; используй moondream или smolvlm
+   - WinError 10061 / «отверг запрос» = Ollama не запущена или другой порт; попробуй http://localhost:11434
+
+6b) Своя модель CNN (TinyDiffCNN по кропам diff 64×64)
+   python scripts/bootstrap_train_dataset.py --pass 64 --fail 64
+   python train.py --epochs 35 --out weights/diff_cnn.pt
+   В config.json: "model_path": "weights/diff_cnn.pt"
+   Для диплома замени содержимое data/train/pass и data/train/fail на свои ч/б кропы 64×64 из shots/diffs после прогонов.
+
+7) Десктоп (Tkinter)
+   $env:FIGMA_ACCESS_TOKEN = "..."
+   python app.py
+
+8) Streamlit v2 (отдельная папка)
+   cd figma-visual-tester
+   pip install -r requirements.txt
+   $env:FIGMA_ACCESS_TOKEN = "..."
+   streamlit run app.py
+
+Отчёты: папка reports/ (HTML, JSON рядом с .txt), артефакты — reports/witness_* и shots/.
+
+Подробнее см. README.md и site/ЗАПУСК.txt для демо-вёрстки.

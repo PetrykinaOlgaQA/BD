@@ -7,6 +7,8 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from src.utils import CAPTURE_WAIT_TYPING_OK_SEC, stats_capture_wait_seconds
+
 
 def append_text_report(
     reports_dir: str,
@@ -50,6 +52,145 @@ def _parse_structured_bug_blocks(markdown: str) -> List[Dict[str, str]]:
     return rows
 
 
+def _extract_section(markdown: str, titles: tuple[str, ...]) -> Optional[str]:
+    """Тело первого раздела ### Title до следующего ### или конца."""
+    for title in titles:
+        m = re.search(
+            rf"(?ms)^###\s*{re.escape(title)}\s*\n(.*?)(?=^###\s|\Z)",
+            markdown,
+        )
+        if m:
+            return m.group(1).strip()
+    return None
+
+
+def _extract_section_heading_contains(markdown: str, substring: str) -> Optional[str]:
+    """### любой заголовок, содержащий substring (без учёта регистра)."""
+    m = re.search(
+        rf"(?ms)^###\s*[^\n]*{re.escape(substring)}[^\n]*\s*\n(.*?)(?=^###\s|\Z)",
+        markdown,
+        flags=re.IGNORECASE,
+    )
+    return m.group(1).strip() if m else None
+
+
+def _is_garbage_recommendation_line(s: str) -> bool:
+    low = s.lower()
+    needles = (
+        "строка из порядка",
+        "строка для поиска",
+        "нулевого порядка",
+        "вхождений",
+        "format_contract",
+        "<instructions>",
+        "<data>",
+        "json (метрики",
+    )
+    return any(n in low for n in needles)
+
+
+def parse_recommendation_lines(markdown: str) -> List[str]:
+    """
+    Строки для таблицы «Рекомендации»: раздел ### Рекомендации по правкам,
+    маркеры - / * / 1. … При отсутствии — не подставляем обрезок всего текста.
+    """
+    if not (markdown or "").strip():
+        return []
+
+    body = _extract_section(
+        markdown,
+        ("Рекомендации по правкам", "Рекомендации"),
+    )
+    if not body:
+        body = _extract_section_heading_contains(markdown, "Рекомендации")
+    lines_out: List[str] = []
+    if body:
+        for line in body.splitlines():
+            s = line.strip()
+            if not s:
+                continue
+            if s.startswith(("---", "***", "```")):
+                continue
+            # Маркированный или нумерованный список
+            mo = re.match(r"^[-*•]\s*(.+)$", s)
+            if mo:
+                item = mo.group(1).strip()
+                if not _is_garbage_recommendation_line(item):
+                    lines_out.append(item)
+                continue
+            mo = re.match(r"^\d{1,2}[\.\)]\s*(.+)$", s)
+            if mo:
+                item = mo.group(1).strip()
+                if not _is_garbage_recommendation_line(item):
+                    lines_out.append(item)
+                continue
+        if lines_out:
+            return lines_out
+
+    # Модель могла вставить заголовок без перевода строки или список ниже без явного тела
+    m = re.search(
+        r"(?is)###\s*[^\n]*Рекомендации[^\n]*\n+((?:^\s*[-*•]\s+.+\n?)+)",
+        markdown,
+    )
+    if m:
+        for line in m.group(1).splitlines():
+            mo = re.match(r"^\s*[-*•]\s+(.+)$", line.strip())
+            if mo:
+                item = mo.group(1).strip()
+                if not _is_garbage_recommendation_line(item):
+                    lines_out.append(item)
+        if lines_out:
+            return lines_out
+
+    body2 = _extract_section(markdown, ("Что сделать в первую очередь",))
+    if body2:
+        # Одна строка абзаца → одна правка
+        flat = re.sub(r"\s+", " ", body2).strip()
+        if flat and len(flat) > 12:
+            return [flat[:500] + ("…" if len(flat) > 500 else "")]
+
+    structured = _parse_structured_bug_blocks(markdown)
+    if structured:
+        return [
+            f"{r.get('блок', '—')}: {r.get('суть', r.get('раздел', ''))}".strip(": ")
+            for r in structured[:20]
+        ]
+
+    return []
+
+
+def fallback_recommendation_lines_from_stats(stats: Dict[str, Any]) -> List[str]:
+    """Если модель не дала списка — даём осмысленные строки из метрик (не заглушку про «раздел не найден»)."""
+    try:
+        cr = float(stats.get("changed_ratio_pct", 0) or 0)
+    except (TypeError, ValueError):
+        cr = 0.0
+    out: List[str] = []
+    raw_tasks = stats.get("diff_hotspots_tasks")
+    if isinstance(raw_tasks, list):
+        for t in raw_tasks:
+            s = str(t).strip()
+            if s:
+                out.append(s)
+            if len(out) >= 16:
+                break
+    if cr > 20:
+        out.append(
+            "Сверить window_size в config с размером фрейма в Figma и figma.scale с масштабом экспорта макета (высокий % diff часто из-за разного кадра)."
+        )
+    cap_wait = stats_capture_wait_seconds(stats)
+    if cap_wait < CAPTURE_WAIT_TYPING_OK_SEC:
+        out.append(
+            "Добавить delay 1500ms перед скриншотом из-за анимации typing/fade/transitions (или увеличить capture_wait_seconds в config до ≥1.5 с)."
+        )
+    else:
+        out.append(
+            f"Пауза перед скрином (capture_wait_seconds={cap_wait:g} с) уже покрывает короткие анимации; при шуме на diff смотрите кадр/масштаб и длинные переходы."
+        )
+    out.append("Повторить прогон после выравнивания кадра; при стабильном кадре разбирать оставшийся diff по блокам из таблицы отступов.")
+    return out
+
+
 def _parse_legacy_numbered_bugs(body: str) -> List[Dict[str, str]]:
     rows: List[Dict[str, str]] = []
     for line in body.splitlines():
@@ -80,14 +221,17 @@ def _parse_legacy_numbered_bugs(body: str) -> List[Dict[str, str]]:
 
 
 def parse_gemma_bugs(markdown: str) -> List[Dict[str, str]]:
-    """Таблица багов: сначала структура Блок/Раздел/Суть, иначе старый список из «Вероятные баги»."""
+    """Устаревший формат таблицы (Блок/Раздел); для HTML используйте parse_recommendation_lines."""
+    recs = parse_recommendation_lines(markdown)
+    if recs:
+        return [{"id": str(i + 1), "блок": "—", "раздел": "—", "суть": t} for i, t in enumerate(recs)]
     if not (markdown or "").strip():
         return [
             {
                 "id": "—",
                 "блок": "—",
                 "раздел": "—",
-                "суть": "Нет ответа модели (проверьте Ollama или отключите Gemma).",
+                "суть": "Нет ответа модели (проверьте Ollama).",
             }
         ]
     structured = _parse_structured_bug_blocks(markdown)
@@ -110,8 +254,8 @@ def parse_gemma_bugs(markdown: str) -> List[Dict[str, str]]:
         {
             "id": "1",
             "блок": "—",
-            "раздел": "см. полный текст",
-            "суть": markdown.strip()[:900] + ("…" if len(markdown.strip()) > 900 else ""),
+            "раздел": "—",
+            "суть": "Полный текст ответа модели — ниже на странице (раздел «Рекомендации по правкам» не найден).",
         }
     ]
 
@@ -138,7 +282,7 @@ def write_html_report(
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     path = os.path.join(reports_dir, f"qa_report_{stamp}.html")
     last_path = os.path.join(reports_dir, "qa_report_last.html")
-    bugs = parse_gemma_bugs(gemma_markdown)
+    recommendations = parse_recommendation_lines(gemma_markdown)
     layout = stats.get("layout_site") or {}
     elements = layout.get("elements") if isinstance(layout, dict) else None
     rows_layout = ""
@@ -161,13 +305,22 @@ def write_html_report(
                 + html.escape(str(el.get("padding", "")), quote=False)
                 + "</small></td></tr>\n"
             )
-    bug_rows = ""
-    for b in bugs:
-        bug_rows += (
-            f"<tr><td>{html.escape(b['id'])}</td>"
-            f"<td>{html.escape(b.get('блок', '—'))}</td>"
-            f"<td>{html.escape(b.get('раздел', '—'))}</td>"
-            f"<td>{html.escape(b.get('суть', b.get('описание', '—')))}</td></tr>\n"
+    if not recommendations:
+        recommendations = fallback_recommendation_lines_from_stats(stats)
+    rec_rows = ""
+    for i, text in enumerate(recommendations, start=1):
+        rec_rows += f"<tr><td>{i}</td><td>{html.escape(text, quote=False)}</td></tr>\n"
+
+    try:
+        cr = float(stats.get("changed_ratio_pct", 0) or 0)
+    except (TypeError, ValueError):
+        cr = 0.0
+    diff_hint = ""
+    if cr > 20:
+        diff_hint = (
+            "<p class=\"warn\"><strong>Внимание:</strong> очень высокий процент отличий по карте diff часто означает не «сломанную вёрстку», "
+            "а несовпадение кадра: размер окна браузера ≠ экспорт Figma, другой масштаб (<code>figma.scale</code>), длинная страница vs один фрейм, скролл. "
+            "Сверьте <code>window_size</code> в config с размером фрейма в макете и при необходимости задайте тот же видимый фрагмент.</p>"
         )
     status_cls = "ok" if ok else "bad"
     status_txt = "PASS" if ok else "FAIL"
@@ -211,6 +364,7 @@ def write_html_report(
     figcaption {{ font-size: 0.85rem; color: #9aa7b5; margin-bottom: 6px; }}
     pre.md {{ white-space: pre-wrap; background: #151b24; padding: 12px; border-radius: 8px; font-size: 0.88rem; overflow: auto; }}
     .meta {{ color: #9aa7b5; font-size: 0.9rem; margin-bottom: 20px; }}
+    .warn {{ background: #2a2518; border: 1px solid #6b5a2a; border-radius: 8px; padding: 10px 14px; font-size: 0.9rem; }}
   </style>
 </head>
 <body>
@@ -224,6 +378,7 @@ def write_html_report(
   <p><span class="pill {status_cls}">{html.escape(status_txt)}</span></p>
 
   <h2>Метрики diff</h2>
+  {diff_hint}
   <table>
     <tr><th>MSE</th><td>{html.escape(str(stats.get("mse", "")))}</td></tr>
     <tr><th>Изменённые пиксели (итог), %</th><td>{html.escape(str(stats.get("changed_ratio_pct", "")))}</td></tr>
@@ -239,10 +394,11 @@ def write_html_report(
     {rows_layout or "<tr><td colspan='7'>Нет данных</td></tr>"}
   </table>
 
-  <h2>Баги (из ответа модели)</h2>
+  <h2>Рекомендации по правкам</h2>
+  <p class="meta">Каждая строка — отдельная правка для вёрстки (формат задаёт модель в разделе «Рекомендации по правкам»).</p>
   <table>
-    <tr><th>#</th><th>Блок</th><th>Раздел страницы</th><th>Суть бага</th></tr>
-    {bug_rows}
+    <tr><th>#</th><th>Правка</th></tr>
+    {rec_rows}
   </table>
 
   <h2>Скриншоты</h2>

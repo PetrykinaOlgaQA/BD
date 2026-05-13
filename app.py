@@ -12,7 +12,8 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from src.pipeline import FigmaVsSiteConfig, run_figma_vs_site
+from src.pipeline import run_figma_vs_site
+from src.pipeline_types import FigmaVsSiteConfig
 
 
 def load_cfg(path: str) -> dict:

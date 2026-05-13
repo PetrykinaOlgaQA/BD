@@ -25,14 +25,21 @@
   <main class="layout">
     <section class="card panel">
       <h2>Тест вёрстки</h2>
-      <label>URL страницы (dev или прод; сейчас проверка — 1920×1080 из config)</label>
-      <input type="url" id="urlSite" placeholder="https://…" autocomplete="off" />
+      <label>URL страницы (сайт под проверку)</label>
+      <input type="url" id="urlSite" placeholder="https://… или http://127.0.0.1:8080" autocomplete="off" />
+      <p class="field-hint" id="urlSiteHint"></p>
 
-      <label>Figma file key</label>
-      <input type="text" id="figmaKey" placeholder="из URL файла …/design/KEY/…" autocomplete="off" />
+      <label>Ссылка на макет в Figma (из браузера, с <code>node-id=</code>)</label>
+      <input type="url" id="figmaUrl" placeholder="https://www.figma.com/design/…" autocomplete="off" />
+      <p class="field-hint" id="figmaUrlHint"></p>
 
-      <label>Figma node id (в ссылке node-id=19-2 → здесь 19:2)</label>
-      <input type="text" id="figmaNode" placeholder="19:2" autocomplete="off" />
+      <details class="adv">
+        <summary>Дополнительно: file key и node id вручную</summary>
+        <label>Figma file key</label>
+        <input type="text" id="figmaKey" placeholder="из URL …/design/KEY/…" autocomplete="off" />
+        <label>Figma node id (<code>node-id=19-2</code> → <code>19:2</code>)</label>
+        <input type="text" id="figmaNode" placeholder="19:2" autocomplete="off" />
+      </details>
 
       <div class="row2">
         <div>
@@ -85,12 +92,12 @@
 
       <div class="checks">
         <label class="chk"><input type="checkbox" id="useGemma" checked /> Описание багов (Ollama)</label>
-        <label class="chk"><input type="checkbox" id="useModel" checked /> CNN по diff</label>
+        <label class="chk"><input type="checkbox" id="useModel" /> CNN по diff (нужен рабочий PyTorch; при ошибке DLL снимите галочку)</label>
         <label class="chk"><input type="checkbox" id="gemmaImg" checked /> Картинка diff в модель</label>
       </div>
 
       <button type="button" class="btn primary" id="btnRun">Сравнить с макетом</button>
-      <p class="hint">Перед запуском: <code>FIGMA_ACCESS_TOKEN</code>, Chrome. Для текста багов — запущенная Ollama (<code>ollama serve</code>) и модель из config (<code>ollama pull …</code>).</p>
+      <p class="hint">Перед запуском: <code>FIGMA_ACCESS_TOKEN</code>, Chrome. Для текста багов — Ollama (<code>ollama serve</code>). Запуск панели: <code>python web_server.py</code> → этот интерфейс.</p>
     </section>
 
     <section class="card output">

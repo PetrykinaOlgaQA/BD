@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from typing import Any, Callable, Dict, Optional, Tuple
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 import requests
 from requests.exceptions import ChunkedEncodingError, ConnectionError, Timeout
@@ -175,6 +176,32 @@ def export_frame_png(
         ) from last_transient
 
     raise RuntimeError("Не удалось скачать PNG после нескольких попыток.")
+
+
+def parse_figma_frame_url(url: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Извлекает file_key и node_id из ссылки вида
+    https://www.figma.com/design/FILE_KEY/...?node-id=1-2
+    node-id в URL с дефисами → в конфиге/Figma API нужны двоеточия (1:2).
+    """
+    s = (url or "").strip()
+    if not s:
+        return None, None
+    m = re.search(r"figma\.com/(?:design|file|proto)/([A-Za-z0-9]+)", s, re.I)
+    if not m:
+        return None, None
+    file_key = m.group(1)
+    parsed = urlparse(s)
+    q = parse_qs(parsed.query)
+    node_raw = (q.get("node-id") or [None])[0]
+    if not node_raw and parsed.fragment:
+        fm = re.search(r"node-id=([^&]+)", parsed.fragment)
+        if fm:
+            node_raw = unquote(fm.group(1))
+    if not node_raw:
+        return file_key, None
+    node_id = unquote(str(node_raw).strip()).replace("-", ":")
+    return file_key, node_id or None
 
 
 def public_design_url(file_key: str, node_id: str) -> str:

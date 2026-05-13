@@ -1,21 +1,38 @@
 {
-  "url_site": "https://dterra.ru/corporatesites/",
+  "url_site": "http://127.0.0.1:8080",
   "window_size": [1920, 1080],
+  "capture_wait_seconds": 12,
   "tolerance_shift_px": 2,
   "tolerance_speckle_iter": 1,
   "pixel_threshold": 30,
   "diff_threshold_pct": 0.5,
-  "ollama_url": "http://127.0.0.1:11434",
-  "gemma_model": "gemma3:latest",
-  "capture_wait_seconds": 12,
   "screenshot_dir": "shots",
   "reports_dir": "reports",
   "model_path": "weights/diff_cnn.pt",
   "figma": {
-    "file_key": "KqJfoHyA6re2zYzDmriMT2",
-    "node_id": "19:2",
-    "design_png": "storage/designs/figma_baseline_last.png",
-    "scale": 1,
+    "file_key": "YOUR_FIGMA_FILE_KEY",
+    "node_id": "0:1",
+    "design_png": "shots/figma_cache/baseline.png",
+    "figma_cache_dir": "shots/figma_cache",
+    "scale": 2,
     "use_cached_png": true
-  }
+  },
+  "compare": {
+    "letterbox": true,
+    "ssim": true,
+    "enhanced_diff": true,
+    "diff_bbox_min_area": 400,
+    "clahe_clip": 2.0,
+    "blur_ksize": 3
+  },
+  "gemma_model": "moondream:latest",
+  "ollama": {
+    "base_url": "http://127.0.0.1:11434",
+    "model": "moondream:latest",
+    "image_max_side": 768,
+    "max_retries": 3,
+    "timeout_connect": 90,
+    "timeout_read": 900
+  },
+  "_comment_legacy": "Поля ollama_url и gemma_model на верхнем уровне тоже поддерживаются для старых конфигов."
 }

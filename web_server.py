@@ -11,7 +11,9 @@ if ROOT not in sys.path:
 
 from flask import Flask, jsonify, render_template, request
 
-from src.pipeline import FigmaVsSiteConfig, run_figma_vs_site
+from src.figma_client import parse_figma_frame_url, public_design_url
+from src.pipeline import run_figma_vs_site
+from src.pipeline_types import FigmaVsSiteConfig
 
 app = Flask(__name__, template_folder=os.path.join(ROOT, "templates"), static_folder=os.path.join(ROOT, "static"))
 
@@ -34,11 +36,18 @@ def api_config():
     c = _load_cfg()
     w, h = tuple(c.get("window_size", [1280, 720]))
     fg = c.get("figma") or {}
+    ol = c.get("ollama") or {}
+    fk = (fg.get("file_key") or "").strip()
+    nid = (fg.get("node_id") or "").strip()
+    figma_url_hint = ""
+    if fk and nid:
+        figma_url_hint = public_design_url(fk, nid)
     return jsonify(
         {
             "url_site": c.get("url_site", c.get("url_local", "")),
-            "figma_file_key": fg.get("file_key", ""),
-            "figma_node_id": fg.get("node_id", ""),
+            "figma_file_key": fk,
+            "figma_node_id": nid,
+            "figma_url_hint": figma_url_hint,
             "figma_use_cached_png": bool(fg.get("use_cached_png", True)),
             "window_w": int(w),
             "window_h": int(h),
@@ -46,8 +55,8 @@ def api_config():
             "tolerance_shift_px": int(c.get("tolerance_shift_px", 2)),
             "tolerance_speckle_iter": int(c.get("tolerance_speckle_iter", 1)),
             "pixel_threshold": int(c.get("pixel_threshold", 30)),
-            "ollama_url": c.get("ollama_url", "http://127.0.0.1:11434"),
-            "gemma_model": c.get("gemma_model", "gemma3:latest"),
+            "ollama_url": ol.get("base_url") or c.get("ollama_url", "http://127.0.0.1:11434"),
+            "gemma_model": ol.get("model") or c.get("gemma_model", "gemma3:latest"),
             "figma_scale": int(fg.get("scale", 1)),
             "capture_wait_seconds": float(c.get("capture_wait_seconds", 12)),
         }
@@ -79,10 +88,36 @@ def api_run():
     fk = (body.get("figma_file_key") or fg.get("file_key") or "").strip()
     nid = (body.get("figma_node_id") or fg.get("node_id") or "").strip()
     site = (body.get("url_site") or c.get("url_site") or c.get("url_local") or "").strip()
-    if not fk or not nid or not site:
-        return jsonify({"error": "Нужны url_site и figma file_key + node_id (в теле запроса или config)"}), 400
 
-    out_png = os.path.join(ROOT, fg.get("design_png", "storage/designs/figma_baseline_last.png"))
+    figma_url_in = (body.get("figma_url") or "").strip()
+    if figma_url_in:
+        fk_u, nid_u = parse_figma_frame_url(figma_url_in)
+        if not fk_u:
+            return jsonify(
+                {
+                    "error": "Ссылка не похожа на Figma (ожидается …figma.com/design/FILE_KEY/… или /file/…).",
+                }
+            ), 400
+        fk = fk_u
+        if nid_u:
+            nid = nid_u
+        else:
+            nid_fb = (body.get("figma_node_id") or fg.get("node_id") or "").strip()
+            if nid_fb:
+                nid = nid_fb
+        if not nid:
+            return jsonify(
+                {
+                    "error": "В ссылке Figma нет node-id=…. Открой нужный фрейм в файле и скопируй URL "
+                    "с параметром node-id, либо укажите node вручную в блоке «Дополнительно».",
+                }
+            ), 400
+
+    if not fk or not nid or not site:
+        return jsonify({"error": "Нужны URL сайта и макет Figma (ссылка с node-id или пара file key + node id в config)"}), 400
+
+    design_rel = fg.get("design_png", "storage/designs/figma_baseline_last.png")
+    out_png = design_rel if os.path.isabs(design_rel) else os.path.normpath(os.path.join(ROOT, design_rel))
     os.makedirs(os.path.dirname(out_png) or ".", exist_ok=True)
 
     use_gemma = bool(body.get("use_gemma", True))

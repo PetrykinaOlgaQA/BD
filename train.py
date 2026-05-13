@@ -3,35 +3,33 @@ from __future__ import annotations
 import argparse
 import os
 import random
-from typing import List, Tuple
+import sys
+from typing import Any, List, Tuple
 
 import numpy as np
-import torch
-import torch.nn as nn
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 
-from src.model_net import TinyDiffCNN
 
-
-def _load_gray_tensor(path: str, size: int) -> torch.Tensor:
+def _load_gray_tensor(path: str, size: int, torch_mod: Any) -> Any:
     im = Image.open(path).convert("L").resize((size, size), Image.Resampling.BILINEAR)
     a = np.asarray(im, dtype=np.float32) / 255.0
-    return torch.from_numpy(a).unsqueeze(0)
+    return torch_mod.from_numpy(a).unsqueeze(0)
 
 
 class DiffDataset(Dataset):
-    def __init__(self, items: List[Tuple[str, int]], size: int = 64):
+    def __init__(self, items: List[Tuple[str, int]], size: int, torch_mod):
         self.items = items
         self.size = size
+        self._t = torch_mod
 
     def __len__(self):
         return len(self.items)
 
     def __getitem__(self, i: int):
         path, y = self.items[i]
-        x = _load_gray_tensor(path, self.size)
-        return x, torch.tensor(y, dtype=torch.long)
+        x = _load_gray_tensor(path, self.size, self._t)
+        return x, self._t.tensor(y, dtype=self._t.long)
 
 
 def collect(root: str) -> List[Tuple[str, int]]:
@@ -46,24 +44,48 @@ def collect(root: str) -> List[Tuple[str, int]]:
     return out
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--data", default="data/train")
-    ap.add_argument("--out", default="weights/diff_cnn.pt")
-    ap.add_argument("--epochs", type=int, default=25)
+def main() -> None:
+    ap = argparse.ArgumentParser(
+        description="Обучение TinyDiffCNN на кропах diff 64×64 (классы pass=0, fail=1).",
+    )
+    ap.add_argument("--data", default="data/train", help="Папка с подкаталогами pass/ и fail/")
+    ap.add_argument("--out", default="weights/diff_cnn.pt", help="Куда сохранить state_dict")
+    ap.add_argument("--epochs", type=int, default=30)
     ap.add_argument("--batch", type=int, default=8)
     ap.add_argument("--lr", type=float, default=1e-3)
+    ap.add_argument("--size", type=int, default=64, help="Размер стороны (как в пайплайне)")
+    ap.add_argument("--min-total", type=int, default=4, help="Минимум картинок всего (pass+fail)")
     args = ap.parse_args()
+
+    try:
+        import torch
+        import torch.nn as nn
+    except OSError as e:
+        print(
+            "PyTorch не смог загрузить нативные библиотеки (часто c10.dll / WinError 1114).\n"
+            "Установите «Microsoft Visual C++ Redistributable» x64 с сайта Microsoft "
+            "или переустановите torch с https://pytorch.org/get-started/locally/\n",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from e
+
+    from src.model_net import TinyDiffCNN
+
     items = collect(args.data)
-    if len(items) < 2:
-        raise SystemExit("Нужны пары изображений в data/train/pass и data/train/fail")
+    if len(items) < args.min_total:
+        raise SystemExit(
+            f"Мало данных: найдено {len(items)} файлов в {args.data}/pass и …/fail. "
+            f"Нужно минимум {args.min_total}. Сгенерируй синтетику: "
+            f"python scripts/bootstrap_train_dataset.py --pass 48 --fail 48\n"
+            "Для «своей» модели замени картинки на свои кропы карт diff (64×64, ч/б) из прогонов."
+        )
     random.shuffle(items)
     n = max(1, int(len(items) * 0.85))
     train_i, val_i = items[:n], items[n:]
     if not val_i:
         val_i = train_i[-1:]
-    tr = DataLoader(DiffDataset(train_i), batch_size=args.batch, shuffle=True)
-    va = DataLoader(DiffDataset(val_i), batch_size=args.batch)
+    tr = DataLoader(DiffDataset(train_i, args.size, torch), batch_size=args.batch, shuffle=True)
+    va = DataLoader(DiffDataset(val_i, args.size, torch), batch_size=args.batch)
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = TinyDiffCNN().to(dev)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-4)
@@ -94,7 +116,7 @@ def main():
         print("epoch", ep + 1, "train_loss", tot / max(1, len(train_i)), "val_acc", round(acc, 4))
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     torch.save(model.state_dict(), args.out)
-    print("saved", args.out)
+    print("saved", args.out, "| укажи этот путь в config.json → model_path")
 
 
 if __name__ == "__main__":

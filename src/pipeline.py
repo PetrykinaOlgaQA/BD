@@ -3,52 +3,15 @@ from __future__ import annotations
 import os
 import shutil
 import time
-from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional, Tuple
-
-import torch
 
 from src.capture import capture_screenshot
 from src.compare import CompareResult, compare_screenshots, diff_tensor_gray
+from src.diff_hotspots import analyze_diff_for_qa, diff_hotspots_to_task_lines
 from src.figma_client import export_frame_png, public_design_url
 from src.gemma_client import explain_diff_ru
-from src.model_net import load_classifier, predict_fail_prob
+from src.pipeline_types import FigmaVsSiteConfig, RunConfig, RunOutcome
 from src.report import append_text_report, write_html_report, write_json_sidecar
-
-
-@dataclass
-class RunConfig:
-    url: str
-    baseline_path: str
-    screenshot_dir: str
-    reports_dir: str
-    diff_threshold_pct: float
-    ollama_url: str
-    gemma_model: str
-    use_gemma: bool
-    model_path: Optional[str]
-    use_model: bool
-    window_size: Tuple[int, int]
-    gemma_use_image: bool
-    tolerance_shift_px: int = 0
-    tolerance_speckle_iter: int = 0
-    pixel_threshold: int = 30
-    capture_wait_seconds: float = 12.0
-    baseline_is_figma: bool = False  # True = эталон из Figma (для промпта к VLM)
-    figma_file_key: Optional[str] = None
-    figma_node_id: Optional[str] = None
-
-
-@dataclass
-class RunOutcome:
-    ok: bool
-    current_shot: str
-    compare: CompareResult
-    model_prob_fail: Optional[float]
-    gemma_text: str
-    report_txt: str
-    witness_dir: str
-    report_html: Optional[str] = None
 
 
 def _verdict(
@@ -84,13 +47,31 @@ def run_pipeline(cfg: RunConfig) -> RunOutcome:
         tolerance_shift_px=cfg.tolerance_shift_px,
         tolerance_speckle_iter=cfg.tolerance_speckle_iter,
     )
-    device = torch.device("cpu")
-    model, has_model = load_classifier(cfg.model_path if cfg.use_model else None, device)
     prob = None
-    if has_model and model and cr.diff_path:
-        x = diff_tensor_gray(cr.diff_path)
-        prob = predict_fail_prob(model, x, device)
+    has_model = False
+    if cfg.use_model and cfg.model_path:
+        try:
+            import torch
+
+            from src.model_net import load_classifier, predict_fail_prob
+
+            device = torch.device("cpu")
+            model, has_model = load_classifier(cfg.model_path, device)
+            if has_model and model and cr.diff_path:
+                x = diff_tensor_gray(cr.diff_path)
+                prob = predict_fail_prob(model, x, device)
+        except OSError as e:
+            # WinError 1114 и т.п. при сломанном PyTorch / VC++ — пайплайн без CNN
+            win = getattr(e, "winerror", None)
+            if win == 1114 or "c10" in str(e).lower() or "dll" in str(e).lower():
+                has_model = False
+                prob = None
+            else:
+                raise
     ok = _verdict(cr, cfg.diff_threshold_pct, prob, has_model)
+    raw_layout = dict(layout_site) if isinstance(layout_site, dict) else {}
+    els_for_hotspots = raw_layout.get("elements") if isinstance(raw_layout.get("elements"), list) else []
+
     ls = dict(layout_site) if isinstance(layout_site, dict) else {}
     els = ls.get("elements")
     if isinstance(els, list) and len(els) > 48:
@@ -109,7 +90,18 @@ def run_pipeline(cfg: RunConfig) -> RunOutcome:
         "size": [cr.width, cr.height],
         "model_prob_fail": prob,
         "layout_site": ls,
+        "capture_wait_seconds": float(cfg.capture_wait_seconds),
     }
+    hotspots = analyze_diff_for_qa(
+        cfg.baseline_path,
+        cur,
+        els_for_hotspots,
+        pixel_threshold=cfg.pixel_threshold,
+        tolerance_shift_px=cfg.tolerance_shift_px,
+        tolerance_speckle_iter=cfg.tolerance_speckle_iter,
+    )
+    stats["diff_hotspots"] = hotspots
+    stats["diff_hotspots_tasks"] = diff_hotspots_to_task_lines(hotspots)
     gemma_text = ""
     if cfg.use_gemma:
         if cfg.baseline_is_figma:
@@ -191,33 +183,6 @@ def run_pipeline(cfg: RunConfig) -> RunOutcome:
         witness_dir=witness,
         report_html=html_path,
     )
-
-
-@dataclass
-class FigmaVsSiteConfig:
-    """Скачать кадр из Figma, снять скрин сайта, сравнить и при необходимости вызвать VLM."""
-
-    site_url: str
-    figma_file_key: str
-    figma_node_id: str
-    figma_token: str
-    figma_baseline_png: str
-    figma_scale: int = 1
-    figma_use_cached_png: bool = True
-    capture_wait_seconds: float = 12.0
-    screenshot_dir: str = "shots"
-    reports_dir: str = "reports"
-    diff_threshold_pct: float = 0.5
-    ollama_url: str = "http://127.0.0.1:11434"
-    gemma_model: str = "gemma3:latest"
-    use_gemma: bool = True
-    model_path: Optional[str] = None
-    use_model: bool = False
-    window_size: Tuple[int, int] = (1920, 1080)
-    gemma_use_image: bool = True
-    tolerance_shift_px: int = 2
-    tolerance_speckle_iter: int = 1
-    pixel_threshold: int = 30
 
 
 def run_figma_vs_site(

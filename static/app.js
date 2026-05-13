@@ -23,6 +23,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.getElementById("urlSite").value = c.url_site || "";
     document.getElementById("figmaKey").value = c.figma_file_key || "";
     document.getElementById("figmaNode").value = c.figma_node_id || "";
+    const figmaHint = c.figma_url_hint || "";
+    const figmaUrlEl = document.getElementById("figmaUrl");
+    if (figmaHint) {
+      figmaUrlEl.value = figmaHint;
+    }
+    document.getElementById("figmaUrlHint").textContent = figmaHint
+      ? "Пример из config.json: " + figmaHint
+      : "Укажите в config.json figma.file_key и figma.node_id — сюда подставится пример ссылки.";
+    const us = (c.url_site || "").trim();
+    document.getElementById("urlSiteHint").textContent = us
+      ? "Пример из config.json: " + us
+      : "Вставьте URL опубликованной страницы или локального сервера (например http://127.0.0.1:8080).";
     document.getElementById("figScale").value = c.figma_scale || 1;
     document.getElementById("winW").value = c.window_w;
     document.getElementById("winH").value = c.window_h;
@@ -50,6 +62,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     const body = {
       url_site: document.getElementById("urlSite").value.trim(),
+      figma_url: document.getElementById("figmaUrl").value.trim(),
       figma_file_key: document.getElementById("figmaKey").value.trim(),
       figma_node_id: document.getElementById("figmaNode").value.trim(),
       figma_scale: parseInt(document.getElementById("figScale").value, 10),

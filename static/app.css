@@ -196,6 +196,33 @@ body {
   color: var(--muted);
 }
 
+.field-hint {
+  margin: 0.15rem 0 0.85rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-family: var(--mono);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.adv {
+  margin: 0.5rem 0 1rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.adv summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.adv label {
+  margin-top: 0.5rem;
+}
+
 .output .out-head {
   display: flex;
   align-items: center;

@@ -9,16 +9,8 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from src.pipeline import FigmaVsSiteConfig, run_figma_vs_site
-
-
-def load_json(path: str) -> dict:
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
-
-
-def _join(root: str, p: str) -> str:
-    return p if os.path.isabs(p) else os.path.normpath(os.path.join(root, p))
+from src.config import app_config_to_figma_vs_site, parse_app_config, validate_app_config
+from src.pipeline import run_figma_vs_site
 
 
 def main():
@@ -41,51 +33,28 @@ def main():
     cfg_path = args.config
     if not os.path.isfile(cfg_path):
         cfg_path = os.path.join(ROOT, "config.example.json")
-    raw = load_json(cfg_path)
 
     tok = os.environ.get("FIGMA_ACCESS_TOKEN") or os.environ.get("FIGMA_TOKEN")
     if not tok:
         raise SystemExit("Задайте переменную окружения FIGMA_ACCESS_TOKEN (токен Figma, не коммитьте).")
 
-    fg = raw.get("figma") or {}
-    fk = (fg.get("file_key") or "").strip()
-    nid = (fg.get("node_id") or "").strip()
+    raw = json.load(open(cfg_path, encoding="utf-8"))
     site = (args.url or raw.get("url_site") or raw.get("url_local") or "").strip()
-    if not fk or not nid or not site:
-        raise SystemExit("В config нужны figma.file_key, figma.node_id и url_site (или флаг --url).")
+    app_cfg = parse_app_config(raw, ROOT)
+    validate_app_config(app_cfg, site_url=site)
+    if args.figma_scale is not None:
+        app_cfg.figma.scale = max(1, min(4, int(args.figma_scale)))
+    figma_use_cached = bool(app_cfg.figma.use_cached_png) and not args.figma_refresh
 
-    out_png = _join(ROOT, fg.get("design_png", "storage/designs/figma_baseline_last.png"))
-    w, h = tuple(raw.get("window_size", [1280, 720]))
-    scale = int(args.figma_scale if args.figma_scale is not None else fg.get("scale", 1))
-    figma_use_cached = bool(fg.get("use_cached_png", True)) and not args.figma_refresh
-    try:
-        cap_wait = float(raw.get("capture_wait_seconds", 12))
-    except (TypeError, ValueError):
-        cap_wait = 12.0
-    cap_wait = max(0.0, min(120.0, cap_wait))
-
-    fcfg = FigmaVsSiteConfig(
-        site_url=site,
-        figma_file_key=fk,
-        figma_node_id=nid,
-        figma_token=tok,
-        figma_baseline_png=out_png,
-        figma_scale=scale,
-        figma_use_cached_png=figma_use_cached,
-        capture_wait_seconds=cap_wait,
-        screenshot_dir=_join(ROOT, raw.get("screenshot_dir", "shots")),
-        reports_dir=_join(ROOT, raw.get("reports_dir", "reports")),
-        diff_threshold_pct=float(raw.get("diff_threshold_pct", 0.5)),
-        ollama_url=raw.get("ollama_url", "http://127.0.0.1:11434"),
-        gemma_model=raw.get("gemma_model", "gemma3:latest"),
+    fcfg = app_config_to_figma_vs_site(
+        app_cfg,
+        ROOT,
+        site,
+        tok,
+        figma_use_cached,
         use_gemma=not args.no_gemma,
-        model_path=_join(ROOT, raw.get("model_path", "weights/diff_cnn.pt")),
         use_model=not args.no_model,
-        window_size=(int(w), int(h)),
         gemma_use_image=not args.no_gemma_image,
-        tolerance_shift_px=int(raw.get("tolerance_shift_px", 2)),
-        tolerance_speckle_iter=int(raw.get("tolerance_speckle_iter", 1)),
-        pixel_threshold=int(raw.get("pixel_threshold", 30)),
     )
 
     out = run_figma_vs_site(fcfg, log=print)

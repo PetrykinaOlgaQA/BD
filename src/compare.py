@@ -78,6 +78,43 @@ def _opening_binary(mask: np.ndarray, iterations: int) -> np.ndarray:
     return np.asarray(im, dtype=np.uint8) > 127
 
 
+def build_change_mask(
+    baseline_path: str,
+    current_path: str,
+    *,
+    pixel_threshold: int = 30,
+    tolerance_shift_px: int = 0,
+    tolerance_speckle_iter: int = 0,
+) -> Tuple[np.ndarray, Tuple[int, int]]:
+    """
+    Булева маска «пиксель считается изменённым» (та же логика, что в compare_screenshots).
+    Возвращает (mask HxW, (width, height)).
+    """
+    tolerance_shift_px = max(0, min(5, int(tolerance_shift_px)))
+    tolerance_speckle_iter = max(0, min(5, int(tolerance_speckle_iter)))
+    a = _to_rgb(Image.open(baseline_path))
+    b = _to_rgb(Image.open(current_path))
+    if a.size != b.size:
+        b = b.resize(a.size, Image.Resampling.LANCZOS)
+    a, b = _downscale_if_huge(a, b)
+    a_np = np.asarray(a)
+    b_np = np.asarray(b)
+    diff = ImageChops.difference(a, b)
+    gray = diff.convert("L")
+    g = np.asarray(gray, dtype=np.uint8)
+    thr_u8 = int(pixel_threshold)
+    min_d = _shift_min_diff(a_np, b_np, tolerance_shift_px)
+    if tolerance_shift_px <= 0:
+        mask_shift = g > thr_u8
+    else:
+        mask_shift = min_d > pixel_threshold
+    if tolerance_shift_px <= 0 and tolerance_speckle_iter <= 0:
+        mask_final = mask_shift
+    else:
+        mask_final = _opening_binary(mask_shift, tolerance_speckle_iter)
+    return mask_final.astype(bool), (a.size[0], a.size[1])
+
+
 def compare_screenshots(
     baseline_path: str,
     current_path: str,

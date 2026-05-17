@@ -6,10 +6,11 @@ import time
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from src.capture import capture_screenshot
-from src.compare import CompareResult, compare_screenshots, diff_tensor_gray
-from src.diff_hotspots import analyze_diff_for_qa, diff_hotspots_to_task_lines
+from src.compare import CompareResult, compare_screenshots
+from src.bug_reports import build_bug_report_items, draft_lines_to_text, sanitize_bug_lines
+from src.diff_hotspots import analyze_diff_for_qa
 from src.figma_client import export_frame_png, public_design_url
-from src.gemma_client import explain_diff_ru
+from src.gemma_client import refine_bug_lines_ru
 from src.pipeline_types import FigmaVsSiteConfig, RunConfig, RunOutcome
 from src.report import append_text_report, write_html_report, write_json_sidecar
 
@@ -49,25 +50,20 @@ def run_pipeline(cfg: RunConfig, log: Optional[Callable[[str], None]] = None) ->
     )
     prob = None
     has_model = False
-    if cfg.use_model and cfg.model_path:
-        try:
-            import torch
+    if cfg.use_model and cfg.model_path and cr.diff_path:
+        from src.diff_classifier import load_classifier, predict_fail_prob
 
-            from src.model_net import load_classifier, predict_fail_prob
-
-            device = torch.device("cpu")
-            model, has_model = load_classifier(cfg.model_path, device)
-            if has_model and model and cr.diff_path:
-                x = diff_tensor_gray(cr.diff_path)
-                prob = predict_fail_prob(model, x, device)
-        except OSError as e:
-            # WinError 1114 и т.п. при сломанном PyTorch / VC++ — пайплайн без CNN
-            win = getattr(e, "winerror", None)
-            if win == 1114 or "c10" in str(e).lower() or "dll" in str(e).lower():
-                has_model = False
-                prob = None
-            else:
-                raise
+        handle, has_model = load_classifier(cfg.model_path)
+        if has_model and handle:
+            try:
+                prob = predict_fail_prob(handle, cr.diff_path)
+            except OSError as e:
+                win = getattr(e, "winerror", None)
+                if win == 1114 or "c10" in str(e).lower() or "dll" in str(e).lower():
+                    has_model = False
+                    prob = None
+                else:
+                    raise
     ok = _verdict(cr, cfg.diff_threshold_pct, prob, has_model)
     raw_layout = dict(layout_site) if isinstance(layout_site, dict) else {}
     els_for_hotspots = raw_layout.get("elements") if isinstance(raw_layout.get("elements"), list) else []
@@ -101,35 +97,55 @@ def run_pipeline(cfg: RunConfig, log: Optional[Callable[[str], None]] = None) ->
         tolerance_speckle_iter=cfg.tolerance_speckle_iter,
     )
     stats["diff_hotspots"] = hotspots
-    stats["diff_hotspots_tasks"] = diff_hotspots_to_task_lines(hotspots)
+    bug_items = build_bug_report_items(
+        hotspots,
+        els_for_hotspots,
+        baseline_path=cfg.baseline_path,
+        current_path=cur,
+        pixel_threshold=cfg.pixel_threshold,
+        tolerance_shift_px=cfg.tolerance_shift_px,
+        tolerance_speckle_iter=cfg.tolerance_speckle_iter,
+    )
+    stats["bug_report_items"] = bug_items
+    stats["diff_hotspots_tasks"] = [
+        str(it.get("text", "")).strip()
+        for it in bug_items
+        if isinstance(it, dict) and str(it.get("text", "")).strip()
+    ]
     stats["layout_elements_for_crops"] = (
         els_for_hotspots[:120] if isinstance(els_for_hotspots, list) else []
     )
-    gemma_text = ""
-    if cfg.use_gemma:
+    draft_lines = [
+        "- " + str(x).strip().lstrip("-• ").strip()
+        for x in (stats.get("diff_hotspots_tasks") or [])
+        if str(x).strip()
+    ]
+
+    gemma_text = draft_lines_to_text(draft_lines) if draft_lines else ""
+    if cfg.use_gemma and getattr(cfg, "refine_bug_text", False):
         if cfg.baseline_is_figma:
             gctx = f"эталон — кадр макета из Figma (PNG {os.path.basename(cfg.baseline_path)}); под тестом страница: {cfg.url}"
         else:
             gctx = f"эталон (файл): {os.path.basename(cfg.baseline_path)}; страница: {cfg.url}"
         if log:
             log(
-                f"Ollama ({cfg.gemma_model}): список правок "
-                f"(fallback_on_empty={cfg.ollama_fallback_on_empty}, read≤{int(cfg.ollama_timeout_read)} с)…"
+                f"Ollama ({cfg.gemma_model}): перефразирование баг-репорта "
+                f"(read≤{int(cfg.ollama_timeout_read)} с)…"
             )
-        gemma_text = explain_diff_ru(
+        refined = refine_bug_lines_ru(
             cfg.ollama_url,
             cfg.gemma_model,
+            draft_lines,
             stats,
-            cr.diff_path,
-            use_image=cfg.gemma_use_image,
             context_label=gctx,
             ollama_timeout=(float(cfg.ollama_timeout_connect), float(cfg.ollama_timeout_read)),
-            image_max_side=int(cfg.ollama_image_max_side),
             max_post_retries=int(cfg.ollama_max_retries),
-            vision_fallback=bool(cfg.ollama_vision_fallback),
-            try_generate_fallback=bool(cfg.ollama_try_generate_fallback),
-            fallback_on_empty=bool(cfg.ollama_fallback_on_empty),
         )
+        refined_lines = sanitize_bug_lines(
+            [ln.strip().lstrip("-• ").strip() for ln in (refined or "").splitlines() if ln.strip()]
+        )
+        if refined_lines and len(refined_lines) >= max(2, len(draft_lines) // 2):
+            gemma_text = draft_lines_to_text(["- " + s for s in refined_lines])
     lines = [
         f"URL: {cfg.url}",
         f"STATUS: {'PASS' if ok else 'FAIL'}",
@@ -261,6 +277,7 @@ def run_figma_vs_site(
         ollama_vision_fallback=bool(cfg.ollama_vision_fallback),
         ollama_try_generate_fallback=bool(cfg.ollama_try_generate_fallback),
         ollama_fallback_on_empty=bool(cfg.ollama_fallback_on_empty),
+        refine_bug_text=bool(getattr(cfg, "refine_bug_text", False)),
     )
     out = run_pipeline(rc, log=log)
     if log:

@@ -35,6 +35,7 @@ class RunConfig:
     ollama_vision_fallback: bool = False
     ollama_try_generate_fallback: bool = False
     ollama_fallback_on_empty: bool = True
+    refine_bug_text: bool = False
 
 
 @dataclass
@@ -81,3 +82,4 @@ class FigmaVsSiteConfig:
     ollama_vision_fallback: bool = False
     ollama_try_generate_fallback: bool = False
     ollama_fallback_on_empty: bool = True
+    refine_bug_text: bool = False

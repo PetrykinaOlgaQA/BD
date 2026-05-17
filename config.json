@@ -8,7 +8,7 @@
   "diff_threshold_pct": 0.5,
   "screenshot_dir": "shots",
   "reports_dir": "reports",
-  "model_path": "weights/diff_cnn.pt",
+  "model_path": "weights/diff_cnn_sklearn.joblib",
   "figma": {
     "file_key": "KqJfoHyA6re2zYzDmriMT2",
     "node_id": "19:2",

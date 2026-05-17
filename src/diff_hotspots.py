@@ -57,7 +57,7 @@ def _elements_by_overlap(
     elements: Optional[List[Any]],
     *,
     top_k: int = 12,
-    min_frac: float = 0.02,
+    min_frac: float = 0.015,
 ) -> List[Dict[str, Any]]:
     if not isinstance(elements, list):
         return []
@@ -117,8 +117,8 @@ def analyze_diff_for_qa(
         tolerance_speckle_iter=tolerance_speckle_iter,
     )
     total_changed = float(mask.mean()) * 100.0
-    grid = _grid_zones(mask, cols=14, rows=10, top_k=8)
-    el_ov = _elements_by_overlap(mask, layout_elements, top_k=12)
+    grid = _grid_zones(mask, cols=14, rows=10, top_k=14)
+    el_ov = _elements_by_overlap(mask, layout_elements, top_k=120)
     return {
         "mask_size": [int(mw), int(mh)],
         "changed_pixels_pct": round(total_changed, 3),
@@ -127,20 +127,27 @@ def analyze_diff_for_qa(
     }
 
 
-def diff_hotspots_to_task_lines(hot: Dict[str, Any], *, max_lines: int = 14) -> List[str]:
-    """Строки для fallback/HTML: только по блокам, без «полос» и координат сетки."""
-    lines: List[str] = []
-    for e in hot.get("elements_overlap") or []:
-        if not isinstance(e, dict):
-            continue
-        sn = e.get("snippet", "?")
-        lines.append(
-            f"Блок {sn} на скрине явно не совпадает с Figma — сравни с макетом размер текста и отступы (в первую очередь сверху/снизу) именно у этого элемента."
-        )
-        if len(lines) >= max_lines:
-            return lines
-    if not lines:
-        lines.append(
-            "По данным layout нет пересечений блоков с сильным diff — открой JSON elements и diff-картинку и выпиши несовпадения по классам и видимому тексту."
-        )
-    return lines[:max_lines]
+def diff_hotspots_to_task_lines(
+    hot: Dict[str, Any],
+    *,
+    max_lines: int = 14,
+    layout_elements: Optional[List[Any]] = None,
+    baseline_path: Optional[str] = None,
+    current_path: Optional[str] = None,
+    pixel_threshold: int = 30,
+    tolerance_shift_px: int = 2,
+    tolerance_speckle_iter: int = 1,
+) -> List[str]:
+    """Краткие строки баг-репорта по diff (один элемент — одна строка, баги через запятую)."""
+    from src.bug_reports import build_bug_lines_from_hotspots
+
+    return build_bug_lines_from_hotspots(
+        hot,
+        layout_elements,
+        baseline_path=baseline_path,
+        current_path=current_path,
+        pixel_threshold=pixel_threshold,
+        tolerance_shift_px=tolerance_shift_px,
+        tolerance_speckle_iter=tolerance_speckle_iter,
+        max_lines=max_lines,
+    )

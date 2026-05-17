@@ -1,0 +1,28 @@
+{
+  "issue_phrases": {
+    "size": "размер не совпадает с макетом",
+    "font": "шрифт не совпадает с макетом",
+    "padding_top": "padding сверху не совпадает с макетом",
+    "padding_bottom": "padding снизу не совпадает с макетом",
+    "margin_top": "отступ сверху не совпадает с макетом",
+    "margin_left": "отступ слева не совпадает с макетом",
+    "layout": "вёрстка не совпадает с макетом",
+    "frame": "кадр или масштаб не совпадает с макетом",
+    "missing_on_mockup": "фрагмента нет на макете",
+    "missing_on_page": "фрагмента нет на странице"
+  },
+  "external_datasets": [
+    {
+      "id": "visiontriage",
+      "name": "VisionTriage (Hugging Face)",
+      "url": "https://huggingface.co/datasets/tathadn/visiontriage-multimodal",
+      "note": "Скриншоты UI + текст баг-репорта; для CNN используйте кропы diff из своих прогонов (scripts/build_train_dataset.py)."
+    },
+    {
+      "id": "owleye",
+      "name": "OwlEye",
+      "url": "https://github.com/20200501/OwlEye",
+      "note": "Мобильные UI-баги; классификация скриншотов, не карта diff."
+    }
+  ]
+}

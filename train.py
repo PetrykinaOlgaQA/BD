@@ -8,7 +8,42 @@ from typing import Any, List, Tuple
 
 import numpy as np
 from PIL import Image
-from torch.utils.data import DataLoader, Dataset
+
+
+def _torch_import_help() -> str:
+    return (
+        "PyTorch не загрузил DLL (WinError 1114, c10.dll).\n\n"
+        "1) Установите «Microsoft Visual C++ Redistributable» x64 (2015–2022):\n"
+        "   https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist\n"
+        "2) Переустановите CPU-сборку PyTorch (в PowerShell из папки проекта):\n"
+        "   pip uninstall torch torchvision torchaudio -y\n"
+        "   pip install torch --index-url https://download.pytorch.org/whl/cpu\n"
+        "3) Перезагрузите ПК после установки VC++.\n"
+        "4) Если проект в OneDrive — попробуйте клон в C:\\dev\\нейросеть (иногда мешает синхронизация).\n"
+        "5) Диагностика: python scripts/check_torch.py\n"
+    )
+
+
+def _import_torch():
+    try:
+        import torch
+        import torch.nn as nn
+        from torch.utils.data import DataLoader, Dataset
+    except ModuleNotFoundError:
+        print(
+            "Модуль torch не найден (вы удалили его и не доустановили).\n"
+            "Вариант A — PyPI (если pytorch.org таймаутится):\n"
+            "  pip install torch --default-timeout=300\n"
+            "Вариант B — без PyTorch:\n"
+            "  pip install scikit-learn joblib\n"
+            "  python train_sklearn.py\n",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    except OSError as e:
+        print(_torch_import_help(), file=sys.stderr)
+        raise SystemExit(1) from e
+    return torch, nn, DataLoader, Dataset
 
 
 def _load_gray_tensor(path: str, size: int, torch_mod: Any) -> Any:
@@ -17,19 +52,22 @@ def _load_gray_tensor(path: str, size: int, torch_mod: Any) -> Any:
     return torch_mod.from_numpy(a).unsqueeze(0)
 
 
-class DiffDataset(Dataset):
-    def __init__(self, items: List[Tuple[str, int]], size: int, torch_mod):
-        self.items = items
-        self.size = size
-        self._t = torch_mod
+def _make_dataset_class(Dataset: type):
+    class DiffDataset(Dataset):
+        def __init__(self, items: List[Tuple[str, int]], size: int, torch_mod: Any):
+            self.items = items
+            self.size = size
+            self._t = torch_mod
 
-    def __len__(self):
-        return len(self.items)
+        def __len__(self):
+            return len(self.items)
 
-    def __getitem__(self, i: int):
-        path, y = self.items[i]
-        x = _load_gray_tensor(path, self.size, self._t)
-        return x, self._t.tensor(y, dtype=self._t.long)
+        def __getitem__(self, i: int):
+            path, y = self.items[i]
+            x = _load_gray_tensor(path, self.size, self._t)
+            return x, self._t.tensor(y, dtype=self._t.long)
+
+    return DiffDataset
 
 
 def collect(root: str) -> List[Tuple[str, int]]:
@@ -57,17 +95,8 @@ def main() -> None:
     ap.add_argument("--min-total", type=int, default=4, help="Минимум картинок всего (pass+fail)")
     args = ap.parse_args()
 
-    try:
-        import torch
-        import torch.nn as nn
-    except OSError as e:
-        print(
-            "PyTorch не смог загрузить нативные библиотеки (часто c10.dll / WinError 1114).\n"
-            "Установите «Microsoft Visual C++ Redistributable» x64 с сайта Microsoft "
-            "или переустановите torch с https://pytorch.org/get-started/locally/\n",
-            file=sys.stderr,
-        )
-        raise SystemExit(1) from e
+    torch, nn, DataLoader, Dataset = _import_torch()
+    DiffDataset = _make_dataset_class(Dataset)
 
     from src.model_net import TinyDiffCNN
 

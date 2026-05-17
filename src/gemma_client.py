@@ -482,8 +482,8 @@ def _compact_verifier_prompt(
         f"Метрики: MSE≈{mse_v}, изменённые пиксели≈{cr_v}%, порог≈{th_v}%.\n\n"
         f"{tasks_txt}"
         "Пример:\n"
-        "- Текст «Заказать» — выровнять по центру\n"
-        "- .corporate-banner — увеличить отступ сверху\n"
+        "- div.wrapper — размер не совпадает с макетом, padding сверху на 12px больше\n"
+        "- h1 — шрифт не совпадает с макетом\n"
     )
 
 
@@ -860,14 +860,15 @@ def _fallback_verifier_task_list(stats: Dict[str, Any], _context_label: str = ""
     raw_tasks = stats.get("diff_hotspots_tasks")
     if isinstance(raw_tasks, list):
         for t in raw_tasks:
-            s = str(t).strip()
+            s = str(t).strip().lstrip("-• ").strip()
             if not s:
                 continue
-            if s.startswith("- "):
-                lines.append(s)
-            else:
-                lines.append("- " + s)
-            if len(lines) >= 14:
+            from src.bug_reports import is_legacy_verbose_bug_line
+
+            if is_legacy_verbose_bug_line(s):
+                continue
+            lines.append("- " + s)
+            if len(lines) >= 10:
                 break
     try:
         cr = float(stats.get("changed_ratio_pct", 0) or 0)
@@ -884,10 +885,6 @@ def _fallback_verifier_task_list(stats: Dict[str, Any], _context_label: str = ""
         lines.append(
             "- Похоже, анимация (typing/fade) не успела к моменту скрина — увеличить паузу после загрузки "
             "(capture_wait_seconds в config или time.sleep в capture_screenshot, не меньше ~1.5 с)"
-        )
-    if cr > 20:
-        lines.append(
-            "- Очень большой diff: часто это не «сломанная вёрстка», а другой кадр или масштаб — сверить размер окна и экспорт Figma (window_size, figma.scale)"
         )
     if not lines:
         lines.append(
@@ -919,6 +916,92 @@ def _sanitize_verifier_task_list(raw: str, stats: Dict[str, Any], context_label:
     if alt and _is_valid_verifier_task_list(cand2):
         return cand2 + "\n"
     return _fallback_verifier_task_list(stats, context_label)
+
+
+def refine_bug_lines_ru(
+    base_url: str,
+    model: str,
+    draft_lines: List[str],
+    stats: Dict[str, Any],
+    context_label: str = "",
+    *,
+    ollama_timeout: Optional[Tuple[float, float]] = None,
+    max_post_retries: int = _OLLAMA_POST_RETRIES,
+) -> str:
+    """
+    Текстовая доработка черновика diff (без картинки): короткий баг-репорт без CSS-селекторов.
+    """
+    from src.bug_reports import is_legacy_verbose_bug_line
+
+    clean: List[str] = []
+    for ln in draft_lines or []:
+        s = str(ln).strip().lstrip("-• ").strip()
+        if not s or is_legacy_verbose_bug_line(s):
+            continue
+        if re.match(r"^[a-z][a-z0-9]*(\.[a-z0-9_-]+)+\s*—", s, re.I):
+            s = s.split("—", 1)[-1].strip()
+        if s:
+            clean.append(s)
+    if not clean:
+        return _fallback_verifier_task_list(stats, context_label)
+
+    try:
+        cr = float(stats.get("changed_ratio_pct", 0) or 0)
+    except (TypeError, ValueError):
+        cr = 0.0
+
+    draft_txt = "\n".join(f"- {s}" for s in clean[:12])
+    prompt = (
+        "Ты редактор баг-репорта по вёрстке (Figma vs сайт).\n"
+        "Перепиши черновик в короткий список для разработчика.\n\n"
+        "ПРАВИЛА:\n"
+        "- Только строки с «- » (русский).\n"
+        "- 4–10 коротких багов по вёрстке из черновика; без дублей.\n"
+        "- НЕ пиши div, .class, селекторы — только смысл: «большой отступ сверху в шапке», «кнопка ниже макета».\n"
+        "- НЕ заменяй весь список фразой «выровняйте window_size» — это запрещено, если в черновике есть баги.\n"
+        "- Про кадр/масштаб — максимум одна строка в конце, и только если diff очень большой.\n\n"
+        f"Контекст: {(context_label or '').strip() or '—'}\n"
+        f"Изменённые пиксели (diff): ~{cr:g}%\n\n"
+        "Черновик:\n"
+        f"{draft_txt}\n\n"
+        "Ответ — только список."
+    )
+    try:
+        raw = _call_ollama_with_fallbacks(
+            base_url,
+            model,
+            prompt,
+            None,
+            diff_image_path=None,
+            http_timeout=ollama_timeout or _OLLAMA_TIMEOUT,
+            image_max_side=384,
+            max_post_retries=max_post_retries,
+            vision_fallback=False,
+            try_generate_fallback=False,
+            fallback_on_empty=False,
+        )
+        out = _sanitize_verifier_task_list(raw, stats, context_label)
+        from src.bug_reports import is_broken_bug_line, sanitize_bug_lines
+
+        bodies = [
+            ln[2:].strip() if ln.startswith("- ") else ln.strip()
+            for ln in out.splitlines()
+            if ln.strip()
+        ]
+        bodies = sanitize_bug_lines(bodies)
+        if _list_is_only_frame_hints(out) or not bodies or any(is_broken_bug_line(b) for b in bodies):
+            return "\n".join(f"- {s}" for s in clean[:12]) + "\n"
+        return "\n".join(f"- {s}" for s in bodies[:12]) + "\n"
+    except Exception:
+        return _fallback_verifier_task_list(stats, context_label)
+
+
+def _list_is_only_frame_hints(text: str) -> bool:
+    lines = [ln.strip().lstrip("-• ").lower() for ln in (text or "").splitlines() if ln.strip()]
+    if not lines:
+        return True
+    frame_words = ("кадр", "масштаб", "window_size", "figma.scale", "выровн", "повторите сверку")
+    return all(any(w in ln for w in frame_words) for ln in lines)
 
 
 def explain_diff_ru(
@@ -993,23 +1076,20 @@ def explain_diff_ru(
         "",
         "ФОРМАТ ОТВЕТА (обязательно):",
         "Только строки, начинающиеся с '- '. Русский язык. Без заголовков, без вступления, без ```, без нумерации 1.",
-        "Каждая строка — одна правка, максимально коротко: «кто/что» — «что сделать».",
-        "Разделитель в строке: длинное тире « — » (пробел, тире, пробел), затем глагол: увеличить, уменьшить, сдвинуть, выровнять, сделать крупнее/мельче, добавить задержку и т.п.",
-        "Сначала укажи элемент: видимый текст в «ёлочках» («Заказать», «Корпоративные сайты»); если текста нет — класс из snippet (.corporate-banner, div.banner__title).",
-        "Не пиши длинные объяснения, «кажется», «вероятно», проценты, MSE, px, если без них можно обойтись.",
+        "Один HTML-элемент — одна строка. Формат: «селектор или текст» — «кратко, через запятую».",
+        "Примеры формулировок: размер не совпадает с макетом; шрифт не совпадает с макетом; padding сверху на 12px больше; отступ слева не совпадает с макетом.",
+        "Несколько проблем у одного элемента — в одной строке через запятую, не дублируй отдельные строки на тот же блок.",
+        "Запрещено: «Блок … явно не совпадает», «сравни с макетом размер текста и отступы», длинные абзацы.",
         "",
         *(low_diff_block.splitlines() if low_diff_block else []),
         *([""] if low_diff_block else []),
         "ЗАПРЕЩЕНО: участок, полоса, вертикальн, ячейка сетки, по маске, diff красн, координаты px, «проверьте блоки», общие фразы без имени элемента.",
         "В JSON diff_hotspots без сетки — не описывай зоны координатами; называй блок и действие.",
         "",
-        "FEW_SHOT (копируй только формат, факты — со своего экрана):",
-        "- Текст «Корпоративные сайты» — увеличить размер",
-        "- Заголовок в баннере — сделать крупнее",
-        "- Отступ сверху у .corporate-banner — увеличить",
-        "- Картинка .corporate-banner__image — сдвинуть вправо",
-        "- Боковые отступы у .brand-gallery__inner — уменьшить",
-        "- Typing-анимация — добавить time.sleep(1.8) перед скриншотом",
+        "FEW_SHOT (только формат):",
+        "- .corporate-banner — размер не совпадает с макетом, padding сверху на 8px больше",
+        "- h1 — шрифт не совпадает с макетом",
+        "- .brand-gallery__inner — отступ слева не совпадает с макетом",
         "- Текст «Заказать» — выровнять по центру",
         "",
         "Оформление текста: в начале пункта можно выделить элемент жирным через Markdown **…** "

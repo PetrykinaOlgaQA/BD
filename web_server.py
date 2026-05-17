@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
+import uuid
 from typing import Any, Dict, List
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -16,6 +18,47 @@ from src.pipeline import run_figma_vs_site
 from src.pipeline_types import FigmaVsSiteConfig
 
 app = Flask(__name__, template_folder=os.path.join(ROOT, "templates"), static_folder=os.path.join(ROOT, "static"))
+
+_RUN_JOBS: Dict[str, Dict[str, Any]] = {}
+_RUN_JOBS_LOCK = threading.Lock()
+API_BUILD = "20260517-ollama-fallback"
+
+
+def _outcome_to_response_dict(out: Any, logs: List[str]) -> Dict[str, Any]:
+    """Тот же JSON, что раньше отдавал синхронный POST /api/run."""
+    return {
+        "ok": out.ok,
+        "report_txt": out.report_txt,
+        "report_html": out.report_html,
+        "witness_dir": out.witness_dir,
+        "shot_site": out.current_shot,
+        "diff_path": out.compare.diff_path,
+        "changed_ratio_pct": round(out.compare.changed_ratio * 100, 4),
+        "mse": round(out.compare.mse, 6),
+        "model_prob_fail": out.model_prob_fail,
+        "gemma_markdown": out.gemma_text,
+        "logs": logs,
+    }
+
+
+def _run_pipeline_job(job_id: str, fcfg: FigmaVsSiteConfig) -> None:
+    logs: List[str] = []
+
+    def log(msg: str) -> None:
+        logs.append(msg)
+        with _RUN_JOBS_LOCK:
+            st = _RUN_JOBS.get(job_id)
+            if st is not None and st.get("status") == "running":
+                st["logs"] = list(logs)
+
+    try:
+        out = run_figma_vs_site(fcfg, log=log)
+        payload = _outcome_to_response_dict(out, logs)
+        with _RUN_JOBS_LOCK:
+            _RUN_JOBS[job_id] = {"status": "done", **payload}
+    except Exception as e:
+        with _RUN_JOBS_LOCK:
+            _RUN_JOBS[job_id] = {"status": "error", "error": str(e), "logs": logs}
 
 
 def _load_cfg() -> Dict[str, Any]:
@@ -31,6 +74,12 @@ def index():
     return render_template("index.html")
 
 
+@app.get("/api/ping")
+def api_ping():
+    """Лёгкая проверка: страница и API на одном origin; без токенов и тяжёлых операций."""
+    return jsonify({"ok": True, "service": "figma-vs-site", "build": API_BUILD})
+
+
 @app.get("/api/config")
 def api_config():
     c = _load_cfg()
@@ -39,8 +88,8 @@ def api_config():
     ol = c.get("ollama") or {}
     fk = (fg.get("file_key") or "").strip()
     nid = (fg.get("node_id") or "").strip()
-    figma_url_hint = ""
-    if fk and nid:
+    figma_url_hint = (fg.get("frame_url") or "").strip()
+    if not figma_url_hint and fk and nid:
         figma_url_hint = public_design_url(fk, nid)
     return jsonify(
         {
@@ -57,8 +106,11 @@ def api_config():
             "pixel_threshold": int(c.get("pixel_threshold", 30)),
             "ollama_url": ol.get("base_url") or c.get("ollama_url", "http://127.0.0.1:11434"),
             "gemma_model": ol.get("model") or c.get("gemma_model", "gemma3:latest"),
+            "ollama_timeout_connect": float(ol.get("timeout_connect", 60)),
+            "ollama_timeout_read": float(ol.get("timeout_read", 300)),
+            "ollama_model": ol.get("model") or c.get("gemma_model", "gemma3:latest"),
             "figma_scale": int(fg.get("scale", 1)),
-            "capture_wait_seconds": float(c.get("capture_wait_seconds", 12)),
+            "capture_wait_seconds": float(c.get("capture_wait_seconds", 4)),
         }
     )
 
@@ -128,10 +180,26 @@ def api_run():
         figma_use_cached = False
     if "figma_use_cached_png" in body:
         figma_use_cached = bool(body.get("figma_use_cached_png"))
-    logs: List[str] = []
 
-    def log(msg: str) -> None:
-        logs.append(msg)
+    ol = c.get("ollama") or {}
+
+    def _fclamp(name: str, default: float, lo: float, hi: float) -> float:
+        try:
+            v = float(ol.get(name, default))
+        except (TypeError, ValueError):
+            v = default
+        return max(lo, min(hi, v))
+
+    ollama_tconn = _fclamp("timeout_connect", 60.0, 5.0, 600.0)
+    ollama_tread = _fclamp("timeout_read", 300.0, 30.0, 3600.0)
+    ollama_img_side = max(256, min(2048, int(ol.get("image_max_side", 384))))
+    ollama_max_retries = max(1, min(10, int(ol.get("max_retries", 2))))
+    ollama_vision_fb = bool(ol.get("vision_fallback", False))
+    ollama_gen_fb = bool(ol.get("try_generate_fallback", False))
+    ollama_empty_fb = bool(ol.get("fallback_on_empty", True))
+    gemma_model = body.get("gemma_model") or ol.get("model") or c.get("gemma_model", "gemma3:latest")
+    if "moondream" in str(gemma_model).lower():
+        ollama_empty_fb = True
 
     fcfg = FigmaVsSiteConfig(
         site_url=site,
@@ -144,8 +212,8 @@ def api_run():
         screenshot_dir=os.path.join(ROOT, c.get("screenshot_dir", "shots")),
         reports_dir=os.path.join(ROOT, c.get("reports_dir", "reports")),
         diff_threshold_pct=thr,
-        ollama_url=(body.get("ollama_url") or c.get("ollama_url", "http://127.0.0.1:11434")).rstrip("/"),
-        gemma_model=body.get("gemma_model") or c.get("gemma_model", "gemma3:latest"),
+        ollama_url=(body.get("ollama_url") or ol.get("base_url") or c.get("ollama_url", "http://127.0.0.1:11434")).rstrip("/"),
+        gemma_model=gemma_model,
         use_gemma=use_gemma,
         model_path=os.path.join(ROOT, c.get("model_path", "weights/diff_cnn.pt")),
         use_model=use_model,
@@ -155,28 +223,39 @@ def api_run():
         tolerance_speckle_iter=sp,
         pixel_threshold=px,
         capture_wait_seconds=cap_wait,
+        ollama_timeout_connect=ollama_tconn,
+        ollama_timeout_read=ollama_tread,
+        ollama_image_max_side=ollama_img_side,
+        ollama_max_retries=ollama_max_retries,
+        ollama_vision_fallback=ollama_vision_fb,
+        ollama_try_generate_fallback=ollama_gen_fb,
+        ollama_fallback_on_empty=ollama_empty_fb,
     )
 
-    try:
-        out = run_figma_vs_site(fcfg, log=log)
-    except Exception as e:
-        return jsonify({"error": str(e), "logs": logs}), 500
-
-    return jsonify(
-        {
-            "ok": out.ok,
-            "report_txt": out.report_txt,
-            "report_html": out.report_html,
-            "witness_dir": out.witness_dir,
-            "shot_site": out.current_shot,
-            "diff_path": out.compare.diff_path,
-            "changed_ratio_pct": round(out.compare.changed_ratio * 100, 4),
-            "mse": round(out.compare.mse, 6),
-            "model_prob_fail": out.model_prob_fail,
-            "gemma_markdown": out.gemma_text,
-            "logs": logs,
-        }
+    job_id = uuid.uuid4().hex[:20]
+    with _RUN_JOBS_LOCK:
+        _RUN_JOBS[job_id] = {"status": "running", "logs": []}
+    threading.Thread(target=_run_pipeline_job, args=(job_id, fcfg), daemon=True).start()
+    return (
+        jsonify(
+            {
+                "async": True,
+                "job_id": job_id,
+                "poll_path": f"/api/job/{job_id}",
+                "message": "Сверка запущена в фоне; интерфейс опрашивает статус (долгие прогоны не рвут соединение).",
+            }
+        ),
+        202,
     )
+
+
+@app.get("/api/job/<job_id>")
+def api_run_job_status(job_id: str):
+    with _RUN_JOBS_LOCK:
+        st = _RUN_JOBS.get(job_id)
+    if not st:
+        return jsonify({"error": "задача не найдена (устарела или неверный id)"}), 404
+    return jsonify(st)
 
 
 def main():
@@ -186,6 +265,9 @@ def main():
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8765)
     args = ap.parse_args()
+    listen = args.host
+    open_host = "127.0.0.1" if listen in ("0.0.0.0", "::", "[::]") else listen
+    print(f"Панель: http://{open_host}:{args.port}/  |  проверка: http://{open_host}:{args.port}/api/ping")
     app.run(host=args.host, port=args.port, debug=False, threaded=True)
 
 

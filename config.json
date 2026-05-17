@@ -1,7 +1,7 @@
 {
-  "url_site": "https://dterra.ru/corporatesites/",
-  "window_size": [1920, 1080],
-  "capture_wait_seconds": 12,
+  "url_site": "https://norvikbank.ru/?ysclid=mp626mlu2920494361",
+  "window_size": [1280, 720],
+  "capture_wait_seconds": 4,
   "tolerance_shift_px": 2,
   "tolerance_speckle_iter": 1,
   "pixel_threshold": 30,
@@ -9,12 +9,11 @@
   "screenshot_dir": "shots",
   "reports_dir": "reports",
   "model_path": "weights/diff_cnn.pt",
-  "ollama_url": "http://127.0.0.1:11434",
-  "gemma_model": "moondream:latest",
   "figma": {
     "file_key": "KqJfoHyA6re2zYzDmriMT2",
     "node_id": "19:2",
-    "design_png": "storage/designs/figma_baseline_last.png",
+    "frame_url": "https://www.figma.com/design/KqJfoHyA6re2zYzDmriMT2/Test?node-id=19-2&p=f&t=oPSc24Nk7ik1Je38-0",
+    "design_png": "shots/figma_cache/baseline.png",
     "figma_cache_dir": "shots/figma_cache",
     "scale": 1,
     "use_cached_png": true
@@ -27,12 +26,16 @@
     "clahe_clip": 2.0,
     "blur_ksize": 3
   },
+  "gemma_model": "llava:latest",
   "ollama": {
     "base_url": "http://127.0.0.1:11434",
-    "model": "moondream:latest",
-    "image_max_side": 768,
-    "max_retries": 3,
-    "timeout_connect": 90,
-    "timeout_read": 900
+    "model": "llava:latest",
+    "image_max_side": 384,
+    "max_retries": 2,
+    "vision_fallback": false,
+    "fallback_on_empty": true,
+    "try_generate_fallback": false,
+    "timeout_connect": 60,
+    "timeout_read": 300
   }
 }

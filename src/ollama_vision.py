@@ -8,7 +8,7 @@ Vision-отчёты через локальную Ollama.
 для пайплайна и будущего переноса логики без смены импортов.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from src.gemma_client import explain_diff_ru
 
@@ -23,6 +23,7 @@ def explain_visual_regression_ru(
     *,
     use_image: bool = True,
     context_label: str = "",
+    ollama_timeout: Optional[Tuple[float, float]] = None,
 ) -> str:
     """Текстовый баг-репорт на русском по метрикам и (опционально) изображению diff."""
     return explain_diff_ru(
@@ -32,4 +33,5 @@ def explain_visual_regression_ru(
         diff_image_path,
         use_image=use_image,
         context_label=context_label,
+        ollama_timeout=ollama_timeout,
     )

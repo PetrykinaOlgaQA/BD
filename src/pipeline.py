@@ -27,7 +27,7 @@ def _verdict(
     return False
 
 
-def run_pipeline(cfg: RunConfig) -> RunOutcome:
+def run_pipeline(cfg: RunConfig, log: Optional[Callable[[str], None]] = None) -> RunOutcome:
     os.makedirs(cfg.screenshot_dir, exist_ok=True)
     ts = int(time.time() * 1000)
     cur = os.path.join(cfg.screenshot_dir, f"current_{ts}.png")
@@ -102,12 +102,20 @@ def run_pipeline(cfg: RunConfig) -> RunOutcome:
     )
     stats["diff_hotspots"] = hotspots
     stats["diff_hotspots_tasks"] = diff_hotspots_to_task_lines(hotspots)
+    stats["layout_elements_for_crops"] = (
+        els_for_hotspots[:120] if isinstance(els_for_hotspots, list) else []
+    )
     gemma_text = ""
     if cfg.use_gemma:
         if cfg.baseline_is_figma:
             gctx = f"эталон — кадр макета из Figma (PNG {os.path.basename(cfg.baseline_path)}); под тестом страница: {cfg.url}"
         else:
             gctx = f"эталон (файл): {os.path.basename(cfg.baseline_path)}; страница: {cfg.url}"
+        if log:
+            log(
+                f"Ollama ({cfg.gemma_model}): список правок "
+                f"(fallback_on_empty={cfg.ollama_fallback_on_empty}, read≤{int(cfg.ollama_timeout_read)} с)…"
+            )
         gemma_text = explain_diff_ru(
             cfg.ollama_url,
             cfg.gemma_model,
@@ -115,6 +123,12 @@ def run_pipeline(cfg: RunConfig) -> RunOutcome:
             cr.diff_path,
             use_image=cfg.gemma_use_image,
             context_label=gctx,
+            ollama_timeout=(float(cfg.ollama_timeout_connect), float(cfg.ollama_timeout_read)),
+            image_max_side=int(cfg.ollama_image_max_side),
+            max_post_retries=int(cfg.ollama_max_retries),
+            vision_fallback=bool(cfg.ollama_vision_fallback),
+            try_generate_fallback=bool(cfg.ollama_try_generate_fallback),
+            fallback_on_empty=bool(cfg.ollama_fallback_on_empty),
         )
     lines = [
         f"URL: {cfg.url}",
@@ -209,7 +223,7 @@ def run_figma_vs_site(
         )
         L(f"         файл: {png_path}")
     else:
-        L("Шаг 1/2: загружаю кадр макета из Figma…")
+        L("Шаг 1/2: загружаю кадр макета из Figma (свежий экспорт, без кэша)…")
         export_frame_png(
             cfg.figma_file_key,
             cfg.figma_node_id,
@@ -240,8 +254,15 @@ def run_figma_vs_site(
         baseline_is_figma=True,
         figma_file_key=cfg.figma_file_key,
         figma_node_id=cfg.figma_node_id,
+        ollama_timeout_connect=float(cfg.ollama_timeout_connect),
+        ollama_timeout_read=float(cfg.ollama_timeout_read),
+        ollama_image_max_side=int(cfg.ollama_image_max_side),
+        ollama_max_retries=int(cfg.ollama_max_retries),
+        ollama_vision_fallback=bool(cfg.ollama_vision_fallback),
+        ollama_try_generate_fallback=bool(cfg.ollama_try_generate_fallback),
+        ollama_fallback_on_empty=bool(cfg.ollama_fallback_on_empty),
     )
-    out = run_pipeline(rc)
+    out = run_pipeline(rc, log=log)
     if log:
         log(f"Отчёт: {out.report_txt}")
         log(f"Артефакты: {out.witness_dir}")

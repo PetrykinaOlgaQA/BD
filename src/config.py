@@ -53,6 +53,8 @@ class FigmaBlock:
     scale: int = 1
     use_cached_png: bool = True
     figma_cache_dir: str = "shots/figma_cache"
+    # Полная ссылка на фрейм (как в браузере) для веб-подсказки; пусто — собирается из file_key + node_id.
+    frame_url: str = ""
 
 
 @dataclass
@@ -71,10 +73,13 @@ class CompareBlock:
 class OllamaVisionBlock:
     base_url: str = "http://127.0.0.1:11434"
     model: str = "gemma3:latest"
-    image_max_side: int = 768
-    max_retries: int = 3
-    timeout_connect: float = 90.0
-    timeout_read: float = 900.0
+    image_max_side: int = 384
+    max_retries: int = 2
+    vision_fallback: bool = False
+    try_generate_fallback: bool = False
+    fallback_on_empty: bool = True
+    timeout_connect: float = 60.0
+    timeout_read: float = 300.0
 
 
 @dataclass
@@ -86,7 +91,7 @@ class AppConfig:
     tolerance_speckle_iter: int = 1
     pixel_threshold: int = 30
     diff_threshold_pct: float = 0.5
-    capture_wait_seconds: float = 12.0
+    capture_wait_seconds: float = 4.0
     screenshot_dir: str = "shots"
     reports_dir: str = "reports"
     model_path: str = "weights/diff_cnn.pt"
@@ -129,6 +134,7 @@ def parse_app_config(raw: Dict[str, Any], project_root: str) -> AppConfig:
         scale=_clamp_int(fg.get("scale", 1), 1, 4, 1),
         use_cached_png=bool(fg.get("use_cached_png", True)),
         figma_cache_dir=str(fg.get("figma_cache_dir", "shots/figma_cache")).strip() or "shots/figma_cache",
+        frame_url=str(fg.get("frame_url", "")).strip(),
     )
 
     cb = CompareBlock(
@@ -143,22 +149,25 @@ def parse_app_config(raw: Dict[str, Any], project_root: str) -> AppConfig:
     ob = OllamaVisionBlock(
         base_url=ollama_url,
         model=ollama_model,
-        image_max_side=_clamp_int(ol.get("image_max_side", 768), 256, 2048, 768),
-        max_retries=_clamp_int(ol.get("max_retries", 3), 1, 10, 3),
-        timeout_connect=_clamp_float(ol.get("timeout_connect", 90.0), 5.0, 600.0, 90.0),
-        timeout_read=_clamp_float(ol.get("timeout_read", 900.0), 30.0, 3600.0, 900.0),
+        image_max_side=_clamp_int(ol.get("image_max_side", 384), 256, 2048, 384),
+        max_retries=_clamp_int(ol.get("max_retries", 2), 1, 10, 2),
+        vision_fallback=bool(ol.get("vision_fallback", False)),
+        try_generate_fallback=bool(ol.get("try_generate_fallback", False)),
+        fallback_on_empty=bool(ol.get("fallback_on_empty", True)),
+        timeout_connect=_clamp_float(ol.get("timeout_connect", 60.0), 5.0, 600.0, 60.0),
+        timeout_read=_clamp_float(ol.get("timeout_read", 300.0), 30.0, 3600.0, 300.0),
     )
 
     url = str(raw.get("url_site") or raw.get("url_local") or "").strip()
     cfg = AppConfig(
         url_site=url,
-        window_size=_pair_size(raw.get("window_size"), (1920, 1080)),
+        window_size=_pair_size(raw.get("window_size"), (1280, 720)),
         figma=fb,
         tolerance_shift_px=_clamp_int(raw.get("tolerance_shift_px", 2), 0, 5, 2),
         tolerance_speckle_iter=_clamp_int(raw.get("tolerance_speckle_iter", 1), 0, 5, 1),
         pixel_threshold=_clamp_int(raw.get("pixel_threshold", 30), 0, 255, 30),
         diff_threshold_pct=_clamp_float(raw.get("diff_threshold_pct", 0.5), 0.0, 100.0, 0.5),
-        capture_wait_seconds=_clamp_float(raw.get("capture_wait_seconds", 12.0), 0.0, 120.0, 12.0),
+        capture_wait_seconds=_clamp_float(raw.get("capture_wait_seconds", 4.0), 0.0, 120.0, 4.0),
         screenshot_dir=str(raw.get("screenshot_dir", "shots")).strip() or "shots",
         reports_dir=str(raw.get("reports_dir", "reports")).strip() or "reports",
         model_path=str(raw.get("model_path", "weights/diff_cnn.pt")).strip() or "weights/diff_cnn.pt",
@@ -222,4 +231,11 @@ def app_config_to_figma_vs_site(
         tolerance_shift_px=int(cfg.tolerance_shift_px),
         tolerance_speckle_iter=int(cfg.tolerance_speckle_iter),
         pixel_threshold=int(cfg.pixel_threshold),
+        ollama_timeout_connect=float(cfg.ollama.timeout_connect),
+        ollama_timeout_read=float(cfg.ollama.timeout_read),
+        ollama_image_max_side=int(cfg.ollama.image_max_side),
+        ollama_max_retries=int(cfg.ollama.max_retries),
+        ollama_vision_fallback=bool(cfg.ollama.vision_fallback),
+        ollama_try_generate_fallback=bool(cfg.ollama.try_generate_fallback),
+        ollama_fallback_on_empty=bool(cfg.ollama.fallback_on_empty),
     )

@@ -238,4 +238,5 @@ def app_config_to_figma_vs_site(
         ollama_vision_fallback=bool(cfg.ollama.vision_fallback),
         ollama_try_generate_fallback=bool(cfg.ollama.try_generate_fallback),
         ollama_fallback_on_empty=bool(cfg.ollama.fallback_on_empty),
+        refine_bug_text=bool(cfg.raw.get("refine_bug_text", False)),
     )

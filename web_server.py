@@ -21,7 +21,7 @@ app = Flask(__name__, template_folder=os.path.join(ROOT, "templates"), static_fo
 
 _RUN_JOBS: Dict[str, Dict[str, Any]] = {}
 _RUN_JOBS_LOCK = threading.Lock()
-API_BUILD = "20260517-ollama-fallback"
+API_BUILD = "compact-bug-table-vt-train"
 
 
 def _outcome_to_response_dict(out: Any, logs: List[str]) -> Dict[str, Any]:

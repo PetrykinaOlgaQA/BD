@@ -16,7 +16,7 @@
       <span class="logo">◇</span>
       <div>
         <h1>Сайт vs Figma</h1>
-        <p class="tagline">Скрин страницы · diff · CNN · описание багов (Ollama)</p>
+        <p class="tagline">Скрин страницы · список правок (Ollama) · эталон Figma</p>
       </div>
     </div>
     <span class="pill" id="connPill">загрузка…</span>
@@ -91,13 +91,14 @@
       </div>
 
       <div class="checks">
+        <label class="chk"><input type="checkbox" id="figmaRefresh" /> Заново выгрузить макет из Figma (игнор кэша PNG)</label>
         <label class="chk"><input type="checkbox" id="useGemma" checked /> Описание багов (Ollama)</label>
         <label class="chk"><input type="checkbox" id="useModel" /> CNN по diff (нужен рабочий PyTorch; при ошибке DLL снимите галочку)</label>
         <label class="chk"><input type="checkbox" id="gemmaImg" checked /> Картинка diff в модель</label>
       </div>
 
       <button type="button" class="btn primary" id="btnRun">Сравнить с макетом</button>
-      <p class="hint">Перед запуском: <code>FIGMA_ACCESS_TOKEN</code>, Chrome. Для текста багов — Ollama (<code>ollama serve</code>). Запуск панели: <code>python web_server.py</code> → этот интерфейс.</p>
+      <p class="hint">Перед запуском: <code>FIGMA_ACCESS_TOKEN</code>, Chrome, Ollama (<code>ollama serve</code>). Быстрее всего: в <code>config.json</code> — <code>moondream</code>, окно 1280×720, <code>figma.scale</code> 1, <code>vision_fallback: false</code>; тяжёлый режим — <code>llava</code> и 1920×1080 (минуты на CPU). Панель: <code>python web_server.py</code> → <code>http://127.0.0.1:8765</code> в обычном браузере.</p>
     </section>
 
     <section class="card output">
@@ -107,7 +108,7 @@
       </div>
       <pre class="log" id="logBox"></pre>
       <article class="gemma" id="gemmaBox">
-        <h3>Что не совпало с макетом</h3>
+        <h3>Список правок</h3>
         <div class="md" id="gemmaMd"></div>
       </article>
     </section>

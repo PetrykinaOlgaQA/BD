@@ -7,6 +7,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from src.block_crops import element_bbox, find_element_for_recommendation_line, save_highlight_crop
 from src.utils import CAPTURE_WAIT_TYPING_OK_SEC, stats_capture_wait_seconds
 
 
@@ -74,6 +75,30 @@ def _extract_section_heading_contains(markdown: str, substring: str) -> Optional
     return m.group(1).strip() if m else None
 
 
+def _normalize_rec_key(s: str) -> str:
+    """Ключ для сравнения строк (без регистра и лишних пробелов)."""
+    t = re.sub(r"\s+", " ", (s or "").lower().strip())
+    t = re.sub(r"[«»\"'`]", "", t)
+    t = re.sub(r"^[-*•]\s*", "", t)
+    return t
+
+
+def dedupe_recommendation_lines(lines: List[str]) -> List[str]:
+    """Убирает точные и почти одинаковые пункты списка правок."""
+    seen: set[str] = set()
+    out: List[str] = []
+    for raw in lines:
+        s = str(raw).strip()
+        if not s or _is_garbage_recommendation_line(s):
+            continue
+        key = _normalize_rec_key(s)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(s)
+    return out
+
+
 def _is_garbage_recommendation_line(s: str) -> bool:
     low = s.lower()
     needles = (
@@ -93,9 +118,29 @@ def parse_recommendation_lines(markdown: str) -> List[str]:
     """
     Строки для таблицы «Рекомендации»: раздел ### Рекомендации по правкам,
     маркеры - / * / 1. … При отсутствии — не подставляем обрезок всего текста.
+
+    Если весь ответ модели — только маркированный список (новый контракт explain_diff_ru),
+    собираем все строки «- …» без секции ###.
     """
     if not (markdown or "").strip():
         return []
+
+    stripped = markdown.strip()
+    if "###" not in stripped:
+        out_plain: List[str] = []
+        for line in stripped.splitlines():
+            s = line.strip()
+            if not s:
+                continue
+            if s.startswith(("---", "***", "```")):
+                continue
+            mo = re.match(r"^[-*•]\s*(.+)$", s)
+            if mo:
+                item = mo.group(1).strip()
+                if not _is_garbage_recommendation_line(item):
+                    out_plain.append(item)
+        if out_plain:
+            return dedupe_recommendation_lines(out_plain)
 
     body = _extract_section(
         markdown,
@@ -125,7 +170,7 @@ def parse_recommendation_lines(markdown: str) -> List[str]:
                     lines_out.append(item)
                 continue
         if lines_out:
-            return lines_out
+            return dedupe_recommendation_lines(lines_out)
 
     # Модель могла вставить заголовок без перевода строки или список ниже без явного тела
     m = re.search(
@@ -140,7 +185,7 @@ def parse_recommendation_lines(markdown: str) -> List[str]:
                 if not _is_garbage_recommendation_line(item):
                     lines_out.append(item)
         if lines_out:
-            return lines_out
+            return dedupe_recommendation_lines(lines_out)
 
     body2 = _extract_section(markdown, ("Что сделать в первую очередь",))
     if body2:
@@ -151,10 +196,12 @@ def parse_recommendation_lines(markdown: str) -> List[str]:
 
     structured = _parse_structured_bug_blocks(markdown)
     if structured:
-        return [
-            f"{r.get('блок', '—')}: {r.get('суть', r.get('раздел', ''))}".strip(": ")
-            for r in structured[:20]
-        ]
+        return dedupe_recommendation_lines(
+            [
+                f"{r.get('блок', '—')}: {r.get('суть', r.get('раздел', ''))}".strip(": ")
+                for r in structured[:20]
+            ]
+        )
 
     return []
 
@@ -174,21 +221,27 @@ def fallback_recommendation_lines_from_stats(stats: Dict[str, Any]) -> List[str]
                 out.append(s)
             if len(out) >= 16:
                 break
-    if cr > 20:
+    out = dedupe_recommendation_lines(out)
+    if cr > 20 and not any(
+        "window_size" in _normalize_rec_key(x) or "figma.scale" in _normalize_rec_key(x) for x in out
+    ):
         out.append(
             "Сверить window_size в config с размером фрейма в Figma и figma.scale с масштабом экспорта макета (высокий % diff часто из-за разного кадра)."
         )
     cap_wait = stats_capture_wait_seconds(stats)
-    if cap_wait < CAPTURE_WAIT_TYPING_OK_SEC:
+    if cap_wait < CAPTURE_WAIT_TYPING_OK_SEC and not any("capture_wait" in _normalize_rec_key(x) for x in out):
         out.append(
             "Добавить delay 1500ms перед скриншотом из-за анимации typing/fade/transitions (или увеличить capture_wait_seconds в config до ≥1.5 с)."
         )
-    else:
+    elif cap_wait >= CAPTURE_WAIT_TYPING_OK_SEC and not any("повторить прогон" in _normalize_rec_key(x) for x in out):
         out.append(
-            f"Пауза перед скрином (capture_wait_seconds={cap_wait:g} с) уже покрывает короткие анимации; при шуме на diff смотрите кадр/масштаб и длинные переходы."
+            f"Пауза перед скрином (capture_wait_seconds={cap_wait:g} с) уже покрывает короткие анимации; при шуме на diff смотрите кадр/масштаб."
         )
-    out.append("Повторить прогон после выравнивания кадра; при стабильном кадре разбирать оставшийся diff по блокам из таблицы отступов.")
-    return out
+    if not any("повторить прогон" in _normalize_rec_key(x) for x in out):
+        out.append(
+            "Повторить прогон после выравнивания кадра; при стабильном кадре разбирать оставшийся diff по блокам из таблицы отступов."
+        )
+    return dedupe_recommendation_lines(out)
 
 
 def _parse_legacy_numbered_bugs(body: str) -> List[Dict[str, str]]:
@@ -260,6 +313,56 @@ def parse_gemma_bugs(markdown: str) -> List[Dict[str, str]]:
     ]
 
 
+def _format_rec_line_html(s: str) -> str:
+    """Экранирование + безопасное жирное **…** (как просит модель)."""
+    e = html.escape(s)
+    return re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", e)
+
+
+def _build_fix_list_html(
+    reports_dir: str,
+    stamp: str,
+    recommendations: List[str],
+    stats: Dict[str, Any],
+    current_shot: str,
+) -> str:
+    """Список правок; при совпадении с блоком layout — миниатюра скрина с рамкой."""
+    els = stats.get("layout_elements_for_crops")
+    if not isinstance(els, list):
+        els = []
+    crop_dir = os.path.join(reports_dir, f"crops_{stamp}")
+    max_crops = 18
+    n_crops = 0
+    parts: List[str] = []
+    for i, t_raw in enumerate(recommendations[:48]):
+        t = str(t_raw)
+        text_html = _format_rec_line_html(t)
+        img_block = ""
+        if (
+            n_crops < max_crops
+            and current_shot
+            and os.path.isfile(current_shot)
+            and els
+        ):
+            el = find_element_for_recommendation_line(t, els)
+            bbox = element_bbox(el) if el else None
+            if bbox:
+                os.makedirs(crop_dir, exist_ok=True)
+                out_png = os.path.join(crop_dir, f"b{i}.png")
+                if save_highlight_crop(current_shot, bbox, out_png):
+                    rel = _asset_href(reports_dir, out_png)
+                    img_block = (
+                        f'<figure class="fix-crop"><img src="{rel}" loading="lazy" '
+                        'alt="фрагмент страницы, красная рамка — граница блока" /></figure>'
+                    )
+                    n_crops += 1
+        parts.append(
+            f'    <li class="fix-li"><div class="fix-li-row">{img_block}'
+            f'<div class="fix-li-text"><p>{text_html}</p></div></div></li>\n'
+        )
+    return "".join(parts) if parts else "    <li>—</li>\n"
+
+
 def _asset_href(reports_dir: str, abs_path: str) -> str:
     rel = os.path.relpath(abs_path, reports_dir).replace("\\", "/")
     return html.escape(rel, quote=True)
@@ -277,12 +380,12 @@ def write_html_report(
     current_shot: str,
     diff_path: Optional[str],
 ) -> str:
-    """Одностраничный отчёт: ссылки на макет и сайт, метрики, таблица багов, превью артефактов."""
+    """Одностраничный отчёт: скриншоты (эталон Figma, затем страница), метрики, список правок; без гиперссылок на Figma/сайт/diff."""
     os.makedirs(reports_dir, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     path = os.path.join(reports_dir, f"qa_report_{stamp}.html")
     last_path = os.path.join(reports_dir, "qa_report_last.html")
-    recommendations = parse_recommendation_lines(gemma_markdown)
+    recommendations = dedupe_recommendation_lines(parse_recommendation_lines(gemma_markdown))
     layout = stats.get("layout_site") or {}
     elements = layout.get("elements") if isinstance(layout, dict) else None
     rows_layout = ""
@@ -307,9 +410,20 @@ def write_html_report(
             )
     if not recommendations:
         recommendations = fallback_recommendation_lines_from_stats(stats)
-    rec_rows = ""
-    for i, text in enumerate(recommendations, start=1):
-        rec_rows += f"<tr><td>{i}</td><td>{html.escape(text, quote=False)}</td></tr>\n"
+    fix_list_items = _build_fix_list_html(reports_dir, stamp, recommendations, stats, current_shot)
+    model_block = ""
+    if not recommendations and (gemma_markdown or "").strip():
+        model_block = (
+            f'  <h2>Полный ответ модели (Markdown)</h2>\n'
+            f'  <pre class="md">{html.escape(gemma_markdown or "—")}</pre>\n'
+        )
+    diff_note_html = ""
+    if diff_path and os.path.isfile(diff_path):
+        rel = _asset_href(reports_dir, diff_path)
+        diff_note_html = (
+            '<p class="meta">Карта отличий (PNG) лежит рядом с этим HTML в папке отчётов, файл '
+            f"<code>{rel}</code> (без гиперссылок в отчёте — откройте файл вручную при необходимости).</p>"
+        )
 
     try:
         cr = float(stats.get("changed_ratio_pct", 0) or 0)
@@ -324,17 +438,18 @@ def write_html_report(
         )
     status_cls = "ok" if ok else "bad"
     status_txt = "PASS" if ok else "FAIL"
-    vp = layout.get("viewport") if isinstance(layout, dict) else {}
+    vp_raw = layout.get("viewport") if isinstance(layout, dict) else None
+    vp: Dict[str, Any] = vp_raw if isinstance(vp_raw, dict) else {}
     vw = vp.get("w", stats.get("size", ["?"])[0] if isinstance(stats.get("size"), list) else "?")
     vh = vp.get("h", stats.get("size", ["?", "?"])[1] if isinstance(stats.get("size"), list) and len(stats["size"]) > 1 else "?")
 
     def img_block(title: str, ap: str) -> str:
         if not ap or not os.path.isfile(ap):
             return ""
-        href = _asset_href(reports_dir, ap)
+        src = _asset_href(reports_dir, ap)
         return (
             f'<figure class="shot"><figcaption>{html.escape(title)}</figcaption>'
-            f'<a href="{href}"><img src="{href}" alt="{html.escape(title)}" loading="lazy" /></a></figure>'
+            f'<img src="{src}" alt="{html.escape(title)}" loading="lazy" /></figure>'
         )
 
     page = f"""<!DOCTYPE html>
@@ -351,7 +466,6 @@ def write_html_report(
     }}
     body {{ max-width: 1100px; margin: 0 auto; padding: 24px; line-height: 1.45; }}
     h1 {{ font-size: 1.35rem; margin-top: 0; }}
-    .links a {{ color: #7eb8ff; margin-right: 16px; }}
     .pill {{ display: inline-block; padding: 4px 12px; border-radius: 999px; font-weight: 600; }}
     .pill.ok {{ background: #1e3d2f; color: #8fefb0; }}
     .pill.bad {{ background: #3d1e1e; color: #ff9b9b; }}
@@ -364,18 +478,29 @@ def write_html_report(
     figcaption {{ font-size: 0.85rem; color: #9aa7b5; margin-bottom: 6px; }}
     pre.md {{ white-space: pre-wrap; background: #151b24; padding: 12px; border-radius: 8px; font-size: 0.88rem; overflow: auto; }}
     .meta {{ color: #9aa7b5; font-size: 0.9rem; margin-bottom: 20px; }}
-    .warn {{ background: #2a2518; border: 1px solid #6b5a2a; border-radius: 8px; padding: 10px 14px; font-size: 0.9rem; }}
+    .fix-list {{ list-style: none; padding: 0; margin: 12px 0 20px; }}
+    .fix-li {{ margin: 12px 0; background: #151b24; border-radius: 10px; border-left: 3px solid #5eead4; }}
+    .fix-li-row {{ display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; padding: 12px 14px; }}
+    .fix-crop {{ margin: 0; flex: 0 0 auto; max-width: 300px; }}
+    .fix-crop img {{ display: block; width: 100%; max-width: 280px; height: auto; border-radius: 8px; border: 1px solid #2a3440; }}
+    .fix-li-text {{ flex: 1; min-width: 220px; }}
+    .fix-li-text p {{ margin: 0; line-height: 1.55; }}
+    .fix-li-text strong {{ color: #8ee9ff; }}
   </style>
 </head>
 <body>
   <h1>Сверка вёрстки с макетом Figma</h1>
   <p class="meta">Время (UTC): {html.escape(datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"))}
     · окно браузера: {html.escape(str(vw))}×{html.escape(str(vh))} px</p>
-  <p class="links">
-    <a href="{html.escape(figma_url, quote=True)}" target="_blank" rel="noopener">Открыть макет в Figma</a>
-    <a href="{html.escape(site_url, quote=True)}" target="_blank" rel="noopener">Открыть проверяемую страницу</a>
-  </p>
   <p><span class="pill {status_cls}">{html.escape(status_txt)}</span></p>
+
+  <h2>Скриншоты</h2>
+  <p class="meta">Сначала ожидаемый кадр из макета Figma, затем фактический скрин страницы. URL в отчёт не выводятся.</p>
+  <div class="grid">
+    {img_block("Ожидаемый вид (макет Figma)", baseline_path)}
+    {img_block("Фактический вид (страница)", current_shot)}
+  </div>
+  {diff_note_html}
 
   <h2>Метрики diff</h2>
   {diff_hint}
@@ -387,6 +512,11 @@ def write_html_report(
     <tr><th>CNN P(fail)</th><td>{html.escape(str(stats.get("model_prob_fail", "—")))}</td></tr>
   </table>
 
+  <h2>Список правок</h2>
+  <p class="meta">Краткие пункты для баг-репорта. Где удалось сопоставить строку с блоком из скрина — рядом миниатюра с красной рамкой по границе элемента.</p>
+  <ul class="fix-list">
+{fix_list_items}  </ul>
+
   <h2>Отступы на странице (computed style)</h2>
   <p class="meta">Крупнейшие видимые блоки в окне просмотра; сверяйте с макетом и diff.</p>
   <table>
@@ -394,23 +524,7 @@ def write_html_report(
     {rows_layout or "<tr><td colspan='7'>Нет данных</td></tr>"}
   </table>
 
-  <h2>Рекомендации по правкам</h2>
-  <p class="meta">Каждая строка — отдельная правка для вёрстки (формат задаёт модель в разделе «Рекомендации по правкам»).</p>
-  <table>
-    <tr><th>#</th><th>Правка</th></tr>
-    {rec_rows}
-  </table>
-
-  <h2>Скриншоты</h2>
-  <div class="grid">
-    {img_block("Эталон (Figma PNG)", baseline_path)}
-    {img_block("Страница", current_shot)}
-    {img_block("Diff", diff_path or "")}
-  </div>
-
-  <h2>Полный ответ модели (Markdown)</h2>
-  <pre class="md">{html.escape(gemma_markdown or "—")}</pre>
-</body>
+{model_block}</body>
 </html>
 """
     with open(path, "w", encoding="utf-8") as f:

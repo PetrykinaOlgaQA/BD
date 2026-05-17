@@ -24,10 +24,17 @@ class RunConfig:
     tolerance_shift_px: int = 0
     tolerance_speckle_iter: int = 0
     pixel_threshold: int = 30
-    capture_wait_seconds: float = 12.0
+    capture_wait_seconds: float = 4.0
     baseline_is_figma: bool = False
     figma_file_key: Optional[str] = None
     figma_node_id: Optional[str] = None
+    ollama_timeout_connect: float = 60.0
+    ollama_timeout_read: float = 300.0
+    ollama_image_max_side: int = 384
+    ollama_max_retries: int = 2
+    ollama_vision_fallback: bool = False
+    ollama_try_generate_fallback: bool = False
+    ollama_fallback_on_empty: bool = True
 
 
 @dataclass
@@ -53,7 +60,7 @@ class FigmaVsSiteConfig:
     figma_baseline_png: str
     figma_scale: int = 1
     figma_use_cached_png: bool = True
-    capture_wait_seconds: float = 12.0
+    capture_wait_seconds: float = 4.0
     screenshot_dir: str = "shots"
     reports_dir: str = "reports"
     diff_threshold_pct: float = 0.5
@@ -62,8 +69,15 @@ class FigmaVsSiteConfig:
     use_gemma: bool = True
     model_path: Optional[str] = None
     use_model: bool = False
-    window_size: Tuple[int, int] = (1920, 1080)
+    window_size: Tuple[int, int] = (1280, 720)
     gemma_use_image: bool = True
     tolerance_shift_px: int = 2
     tolerance_speckle_iter: int = 1
     pixel_threshold: int = 30
+    ollama_timeout_connect: float = 60.0
+    ollama_timeout_read: float = 300.0
+    ollama_image_max_side: int = 384
+    ollama_max_retries: int = 2
+    ollama_vision_fallback: bool = False
+    ollama_try_generate_fallback: bool = False
+    ollama_fallback_on_empty: bool = True

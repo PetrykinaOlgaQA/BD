@@ -128,23 +128,19 @@ def analyze_diff_for_qa(
 
 
 def diff_hotspots_to_task_lines(hot: Dict[str, Any], *, max_lines: int = 14) -> List[str]:
-    """Готовые строки для таблицы «Рекомендации» и для fallback (человекочитаемо)."""
+    """Строки для fallback/HTML: только по блокам, без «полос» и координат сетки."""
     lines: List[str] = []
-    for z in hot.get("grid_cells") or []:
-        if not isinstance(z, dict):
-            continue
-        lines.append(
-            f"Карта diff: ячейка сетки col={z.get('col')} row={z.get('row')} "
-            f"({z.get('w')}×{z.get('h')} px, origin {z.get('x')},{z.get('y')}) — "
-            f"~{z.get('changed_frac_pct')}% площади ячейки с отличиями; сверить с макетом в этой зоне."
-        )
     for e in hot.get("elements_overlap") or []:
         if not isinstance(e, dict):
             continue
+        sn = e.get("snippet", "?")
         lines.append(
-            f"Блок {e.get('snippet', '?')} (bbox {e.get('x')},{e.get('y')} {e.get('w')}×{e.get('h')} px): "
-            f"~{e.get('changed_frac_in_box_pct')}% пикселей внутри блока по маске diff — проверить вёрстку/контент против Figma."
+            f"Блок {sn} на скрине явно не совпадает с Figma — сравни с макетом размер текста и отступы (в первую очередь сверху/снизу) именно у этого элемента."
         )
+        if len(lines) >= max_lines:
+            return lines
     if not lines:
-        lines.append("По маске diff выделенных зон с заметной долей отличий не найдено (или нет данных layout).")
+        lines.append(
+            "По данным layout нет пересечений блоков с сильным diff — открой JSON elements и diff-картинку и выпиши несовпадения по классам и видимому тексту."
+        )
     return lines[:max_lines]

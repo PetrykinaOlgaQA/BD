@@ -173,6 +173,22 @@ class App(tk.Tk):
 
         c = load_cfg(self.cfg_path)
         fg = c.get("figma") or {}
+        ol = c.get("ollama") or {}
+
+        def _fclamp(name: str, default: float, lo: float, hi: float) -> float:
+            try:
+                v = float(ol.get(name, default))
+            except (TypeError, ValueError):
+                v = default
+            return max(lo, min(hi, v))
+
+        ollama_tconn = _fclamp("timeout_connect", 60.0, 5.0, 600.0)
+        ollama_tread = _fclamp("timeout_read", 300.0, 30.0, 3600.0)
+        ollama_img_side = max(256, min(2048, int(ol.get("image_max_side", 384))))
+        ollama_max_retries = max(1, min(10, int(ol.get("max_retries", 2))))
+        ollama_vision_fb = bool(ol.get("vision_fallback", False))
+        ollama_gen_fb = bool(ol.get("try_generate_fallback", False))
+        ollama_empty_fb = bool(ol.get("fallback_on_empty", True))
         fk = (fg.get("file_key") or "").strip()
         nid = (fg.get("node_id") or "").strip()
         if not fk or not nid:
@@ -199,8 +215,8 @@ class App(tk.Tk):
             screenshot_dir=os.path.join(ROOT, c.get("screenshot_dir", "shots")),
             reports_dir=os.path.join(ROOT, c.get("reports_dir", "reports")),
             diff_threshold_pct=thr,
-            ollama_url=c.get("ollama_url", "http://127.0.0.1:11434"),
-            gemma_model=c.get("gemma_model", "gemma3:latest"),
+            ollama_url=(ol.get("base_url") or c.get("ollama_url", "http://127.0.0.1:11434")).rstrip("/"),
+            gemma_model=ol.get("model") or c.get("gemma_model", "gemma3:latest"),
             use_gemma=self.use_gemma.get(),
             model_path=os.path.join(ROOT, c.get("model_path", "weights/diff_cnn.pt")),
             use_model=self.use_model.get(),
@@ -209,6 +225,13 @@ class App(tk.Tk):
             tolerance_shift_px=max(0, min(5, sh)),
             tolerance_speckle_iter=max(0, min(5, sp)),
             pixel_threshold=max(0, min(255, px)),
+            ollama_timeout_connect=ollama_tconn,
+            ollama_timeout_read=ollama_tread,
+            ollama_image_max_side=ollama_img_side,
+            ollama_max_retries=ollama_max_retries,
+            ollama_vision_fallback=ollama_vision_fb,
+            ollama_try_generate_fallback=ollama_gen_fb,
+            ollama_fallback_on_empty=ollama_empty_fb,
         )
 
         self.log.configure(state=tk.NORMAL)

@@ -34,9 +34,7 @@ def main():
     if not os.path.isfile(cfg_path):
         cfg_path = os.path.join(ROOT, "config.example.json")
 
-    tok = os.environ.get("FIGMA_ACCESS_TOKEN") or os.environ.get("FIGMA_TOKEN")
-    if not tok:
-        raise SystemExit("Задайте переменную окружения FIGMA_ACCESS_TOKEN (токен Figma, не коммитьте).")
+    tok = (os.environ.get("FIGMA_ACCESS_TOKEN") or os.environ.get("FIGMA_TOKEN") or "").strip()
 
     raw = json.load(open(cfg_path, encoding="utf-8"))
     site = (args.url or raw.get("url_site") or raw.get("url_local") or "").strip()
@@ -45,6 +43,16 @@ def main():
     if args.figma_scale is not None:
         app_cfg.figma.scale = max(1, min(4, int(args.figma_scale)))
     figma_use_cached = bool(app_cfg.figma.use_cached_png) and not args.figma_refresh
+    cache_png = app_cfg.resolved_design_png(ROOT)
+    cache_ok = os.path.isfile(cache_png) and os.path.getsize(cache_png) > 64
+    if not tok:
+        if args.figma_refresh or not figma_use_cached or not cache_ok:
+            raise SystemExit(
+                "Задайте FIGMA_ACCESS_TOKEN (нужен для выгрузки макета). "
+                "Без токена можно только с кэшем: figma.use_cached_png=true и файл макета на диске."
+            )
+        tok = "cache-only"
+        print(f"FIGMA_ACCESS_TOKEN не задан — макет из кэша: {cache_png}")
 
     fcfg = app_config_to_figma_vs_site(
         app_cfg,

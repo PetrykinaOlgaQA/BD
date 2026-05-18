@@ -76,10 +76,15 @@ class App(tk.Tk):
 
         self.use_gemma = tk.BooleanVar(value=True)
         self.use_model = tk.BooleanVar(value=True)
+        self.use_fragment = tk.BooleanVar(value=True)
         self.gemma_img = tk.BooleanVar(value=True)
         tk.Checkbutton(f, text="Текст багов (Gemma / Ollama)", variable=self.use_gemma).grid(row=r, column=1, sticky="w")
         r += 1
         tk.Checkbutton(f, text="CNN по diff", variable=self.use_model).grid(row=r, column=1, sticky="w")
+        r += 1
+        tk.Checkbutton(
+            f, text="Сопоставление фрагментов A|diff|B", variable=self.use_fragment
+        ).grid(row=r, column=1, sticky="w")
         r += 1
         tk.Checkbutton(f, text="Передавать diff-картинку в модель", variable=self.gemma_img).grid(row=r, column=1, sticky="w")
         r += 1
@@ -115,6 +120,7 @@ class App(tk.Tk):
         self.speck.insert(0, str(int(c.get("tolerance_speckle_iter", 1))))
         self.pix_thr.delete(0, tk.END)
         self.pix_thr.insert(0, str(int(c.get("pixel_threshold", 30))))
+        self.use_fragment.set(bool(c.get("use_fragment_matcher", True)))
 
     def _append(self, s: str):
         self.log.configure(state=tk.NORMAL)
@@ -220,6 +226,11 @@ class App(tk.Tk):
             use_gemma=self.use_gemma.get(),
             model_path=os.path.join(ROOT, c.get("model_path", "weights/diff_cnn.pt")),
             use_model=self.use_model.get(),
+            fragment_matcher_path=os.path.join(
+                ROOT, c.get("fragment_matcher_path", "weights/fragment_matcher.pt")
+            ),
+            use_fragment_matcher=self.use_fragment.get(),
+            fragment_match_threshold=float(c.get("fragment_match_threshold", 0.55)),
             window_size=(ww, wh),
             gemma_use_image=self.gemma_img.get(),
             tolerance_shift_px=max(0, min(5, sh)),

@@ -21,7 +21,7 @@ app = Flask(__name__, template_folder=os.path.join(ROOT, "templates"), static_fo
 
 _RUN_JOBS: Dict[str, Dict[str, Any]] = {}
 _RUN_JOBS_LOCK = threading.Lock()
-API_BUILD = "compact-bug-table-vt-train"
+API_BUILD = "ollama-bug-reporter-v1"
 
 
 def _outcome_to_response_dict(out: Any, logs: List[str]) -> Dict[str, Any]:
@@ -174,7 +174,13 @@ def api_run():
 
     use_gemma = bool(body.get("use_gemma", True))
     use_model = bool(body.get("use_model", True))
+    use_fragment = bool(body.get("use_fragment_matcher", c.get("use_fragment_matcher", True)))
     gemma_img = bool(body.get("gemma_use_image", True))
+    try:
+        frag_thr = float(body.get("fragment_match_threshold", c.get("fragment_match_threshold", 0.55)))
+    except (TypeError, ValueError):
+        frag_thr = 0.55
+    frag_thr = max(0.0, min(1.0, frag_thr))
     figma_use_cached = bool(fg.get("use_cached_png", True))
     if body.get("figma_refresh") or body.get("figma_force_refresh"):
         figma_use_cached = False
@@ -217,6 +223,11 @@ def api_run():
         use_gemma=use_gemma,
         model_path=os.path.join(ROOT, c.get("model_path", "weights/diff_cnn.pt")),
         use_model=use_model,
+        fragment_matcher_path=os.path.join(
+            ROOT, c.get("fragment_matcher_path", "weights/fragment_matcher.pt")
+        ),
+        use_fragment_matcher=use_fragment,
+        fragment_match_threshold=frag_thr,
         window_size=(ww, wh),
         gemma_use_image=gemma_img,
         tolerance_shift_px=sh,
@@ -230,6 +241,14 @@ def api_run():
         ollama_vision_fallback=ollama_vision_fb,
         ollama_try_generate_fallback=ollama_gen_fb,
         ollama_fallback_on_empty=ollama_empty_fb,
+        refine_bug_text=bool(c.get("refine_bug_text", (c.get("ollama") or {}).get("polish_bug_text", True))),
+        ollama_polish_bugs=bool(
+            body.get("ollama_polish_bugs", (c.get("ollama") or {}).get("polish_bug_text", True))
+        ),
+        ollama_bug_report_mode=str(
+            body.get("ollama_bug_report_mode", (c.get("ollama") or {}).get("bug_report_mode", "text"))
+        ).lower()
+        or "text",
     )
 
     job_id = uuid.uuid4().hex[:20]

@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
 from typing import Any, Callable, Dict, Optional, Tuple
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 import requests
-from requests.exceptions import ChunkedEncodingError, ConnectionError, Timeout
+from requests.exceptions import ChunkedEncodingError, ConnectionError, HTTPError, Timeout
 from urllib3.exceptions import ProtocolError
 
 # Figma отдаёт тяжёлый PNG по временному URL; на нестабильной сети часто рвётся chunked-ответ.
@@ -17,7 +18,25 @@ _READ_TIMEOUT = 360
 _CHUNK = 256 * 1024
 _MAX_NOT_FOUND_STREAK = 12
 _MAX_DOWNLOAD_ATTEMPTS = 48
-_FIGMA_API_MAX_ATTEMPTS = 8
+_FIGMA_API_MAX_ATTEMPTS = 14
+_FIGMA_API_LOCK = threading.Lock()
+_LAST_FIGMA_API_TS = 0.0
+_FIGMA_MIN_INTERVAL_SEC = max(0.0, float(os.environ.get("FIGMA_API_MIN_INTERVAL", "3.0") or "3.0"))
+
+
+class FigmaRateLimitError(RuntimeError):
+    """Исчерпаны повторы при HTTP 429 Too Many Requests."""
+
+
+def _throttle_figma_api() -> None:
+    """Не чаще одного запроса к api.figma.com за интервал (лимит токена/плана)."""
+    global _LAST_FIGMA_API_TS
+    with _FIGMA_API_LOCK:
+        now = time.monotonic()
+        wait = _FIGMA_MIN_INTERVAL_SEC - (now - _LAST_FIGMA_API_TS)
+        if wait > 0:
+            time.sleep(wait)
+        _LAST_FIGMA_API_TS = time.monotonic()
 
 
 def _figma_retry_sleep_seconds(response: requests.Response, attempt: int) -> float:
@@ -28,7 +47,7 @@ def _figma_retry_sleep_seconds(response: requests.Response, attempt: int) -> flo
             return max(1.0, min(float(h.strip()), 120.0))
         except ValueError:
             pass
-    return min(2.0 * (1.45 ** attempt), 45.0)
+    return min(3.0 * (1.55 ** attempt), 90.0)
 
 
 def _figma_api_get(
@@ -41,12 +60,16 @@ def _figma_api_get(
     headers = {"X-Figma-Token": token}
     last: Optional[requests.Response] = None
     for attempt in range(_FIGMA_API_MAX_ATTEMPTS):
+        _throttle_figma_api()
         r = requests.get(url, headers=headers, timeout=timeout)
         last = r
         if r.status_code == 429:
             wait = _figma_retry_sleep_seconds(r, attempt)
             if log:
-                log(f"         Figma: лимит запросов (429), пауза {wait:.1f} с ({attempt + 1}/{_FIGMA_API_MAX_ATTEMPTS})…")
+                log(
+                    f"         Figma: лимит запросов (429), пауза {wait:.0f} с "
+                    f"({attempt + 1}/{_FIGMA_API_MAX_ATTEMPTS})…"
+                )
             time.sleep(wait)
             continue
         if r.status_code >= 500:
@@ -56,6 +79,11 @@ def _figma_api_get(
             continue
         r.raise_for_status()
         return r
+    if last is not None and last.status_code == 429:
+        raise FigmaRateLimitError(
+            "Figma API: слишком много запросов (429). Подождите 1–2 минуты, снимите "
+            "«Заново выгрузить макет» и используйте кэш PNG, либо уменьшите частоту сверок."
+        )
     if last is not None:
         last.raise_for_status()
     raise RuntimeError("Figma API: пустой ответ после повторов")

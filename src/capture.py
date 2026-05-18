@@ -21,17 +21,39 @@ return (function() {
     return (rb.width * rb.height) - (ra.width * ra.height);
   });
   const out = [];
-  const max = 80;
+  const max = 120;
   for (var i = 0; i < nodes.length && out.length < max; i++) {
     var el = nodes[i], r = el.getBoundingClientRect(), cs = getComputedStyle(el);
     var id = el.id ? ('#' + el.id) : '';
     var cn = el.className && typeof el.className === 'string' ? el.className.trim().split(/\\s+/).slice(0, 2).join('.') : '';
     var cls = cn ? ('.' + cn) : '';
+    var inner = '';
+    try {
+      inner = (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 120);
+    } catch (e) { inner = ''; }
+    var section = '';
+    var p = el;
+    while (p && p !== document.body) {
+      var cn = (p.className && typeof p.className === 'string') ? p.className : '';
+      if (cn.indexOf('header') >= 0) { section = 'header'; break; }
+      if (cn.indexOf('fact-card') >= 0) { section = 'fact-card'; break; }
+      if (cn.indexOf('facts-grid') >= 0) { section = 'facts-grid'; break; }
+      if (cn.indexOf('stats') >= 0) { section = 'stats'; break; }
+      if (cn.indexOf('footer') >= 0) { section = 'footer'; break; }
+      p = p.parentElement;
+    }
     out.push({
       snippet: el.tagName.toLowerCase() + id + cls,
+      section: section,
       x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height),
       margin: [cs.marginTop, cs.marginRight, cs.marginBottom, cs.marginLeft].join(' '),
-      padding: [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft].join(' ')
+      padding: [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft].join(' '),
+      fontFamily: cs.fontFamily,
+      fontSize: cs.fontSize,
+      fontWeight: cs.fontWeight,
+      lineHeight: cs.lineHeight,
+      color: cs.color,
+      innerText: inner
     });
   }
   return { viewport: { w: vw, h: vh }, elements: out };
@@ -60,9 +82,22 @@ def capture_screenshot(
     opts.add_argument("--hide-scrollbars")
 
     driver = webdriver.Chrome(options=opts)
-    layout: Dict[str, Any] = {"viewport": {"w": window_size[0], "h": window_size[1]}, "elements": []}
+    w, h = int(window_size[0]), int(window_size[1])
+    layout: Dict[str, Any] = {"viewport": {"w": w, "h": h}, "elements": []}
     try:
         driver.get(url)
+        try:
+            driver.execute_cdp_cmd(
+                "Emulation.setDeviceMetricsOverride",
+                {
+                    "width": w,
+                    "height": h,
+                    "deviceScaleFactor": 1,
+                    "mobile": False,
+                },
+            )
+        except Exception:
+            pass
         time.sleep(wait_seconds)
         if collect_layout:
             try:

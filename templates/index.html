@@ -7,109 +7,142 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='design-tokens.css') }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}" />
 </head>
-<body>
-  <div class="bg-grid"></div>
-  <header class="top">
-    <div class="brand">
-      <span class="logo">◇</span>
-      <div>
-        <h1>Сайт vs Figma</h1>
-        <p class="tagline">Скрин страницы · список правок (Ollama) · эталон Figma</p>
+<body class="qa-panel">
+  <a class="qa-panel__skip" href="#qa-main">К основному содержимому</a>
+  <div class="qa-panel__bg" aria-hidden="true"></div>
+
+  <header class="qa-panel__header">
+    <div class="qa-panel__brand">
+      <span class="qa-panel__logo" aria-hidden="true">◇</span>
+      <div class="qa-panel__title-block">
+        <h1 class="qa-panel__title">Сайт vs Figma</h1>
+        <p class="qa-panel__tagline">Скрин страницы · список правок (Ollama) · эталон Figma</p>
       </div>
     </div>
-    <span class="pill" id="connPill">загрузка…</span>
+    <span class="qa-panel__pill" id="connPill" role="status" aria-live="polite">загрузка…</span>
   </header>
 
-  <main class="layout">
-    <section class="card panel">
-      <h2>Тест вёрстки</h2>
-      <label>URL страницы (сайт под проверку)</label>
-      <input type="url" id="urlSite" placeholder="https://… или http://127.0.0.1:8080" autocomplete="off" />
-      <p class="field-hint" id="urlSiteHint"></p>
+  <main id="qa-main" class="qa-panel__main">
+    <section class="qa-panel__card qa-panel__card--form" aria-labelledby="qa-form-heading">
+      <h2 id="qa-form-heading" class="qa-panel__card-title">Тест вёрстки</h2>
 
-      <label>Ссылка на макет в Figma (из браузера, с <code>node-id=</code>)</label>
-      <input type="url" id="figmaUrl" placeholder="https://www.figma.com/design/…" autocomplete="off" />
-      <p class="field-hint" id="figmaUrlHint"></p>
+      <div class="qa-panel__field">
+        <label class="qa-panel__label" for="urlSite">URL страницы (сайт под проверку)</label>
+        <input class="qa-panel__input" type="url" id="urlSite" name="url_site" placeholder="https://… или http://127.0.0.1:8080" autocomplete="url" />
+        <p class="qa-panel__hint qa-panel__hint--field" id="urlSiteHint" aria-live="polite"></p>
+      </div>
 
-      <details class="adv">
-        <summary>Дополнительно: file key и node id вручную</summary>
-        <label>Figma file key</label>
-        <input type="text" id="figmaKey" placeholder="из URL …/design/KEY/…" autocomplete="off" />
-        <label>Figma node id (<code>node-id=19-2</code> → <code>19:2</code>)</label>
-        <input type="text" id="figmaNode" placeholder="19:2" autocomplete="off" />
+      <div class="qa-panel__field">
+        <label class="qa-panel__label" for="figmaUrl">Ссылка на макет в Figma (из браузера, с <code>node-id=</code>)</label>
+        <input class="qa-panel__input" type="url" id="figmaUrl" name="figma_url" placeholder="https://www.figma.com/design/…" autocomplete="off" />
+        <p class="qa-panel__hint qa-panel__hint--field" id="figmaUrlHint" aria-live="polite"></p>
+      </div>
+
+      <details class="qa-panel__details">
+        <summary class="qa-panel__details-summary">Дополнительно: file key и node id вручную</summary>
+        <div class="qa-panel__field">
+          <label class="qa-panel__label" for="figmaKey">Figma file key</label>
+          <input class="qa-panel__input" type="text" id="figmaKey" name="figma_file_key" placeholder="из URL …/design/KEY/…" autocomplete="off" />
+        </div>
+        <div class="qa-panel__field">
+          <label class="qa-panel__label" for="figmaNode">Figma node id (<code>node-id=19-2</code> → <code>19:2</code>)</label>
+          <input class="qa-panel__input" type="text" id="figmaNode" name="figma_node_id" placeholder="19:2" autocomplete="off" />
+        </div>
       </details>
 
-      <div class="row2">
-        <div>
-          <label>Масштаб PNG Figma (1–4)</label>
-          <input type="number" id="figScale" min="1" max="4" />
+      <div class="qa-panel__row2">
+        <div class="qa-panel__field qa-panel__field--inline">
+          <label class="qa-panel__label" for="figScale">Масштаб PNG Figma (1–4)</label>
+          <input class="qa-panel__input" type="number" id="figScale" name="figma_scale" min="1" max="4" inputmode="numeric" />
         </div>
-        <div></div>
+        <div class="qa-panel__field qa-panel__field--spacer" aria-hidden="true"></div>
       </div>
 
-      <div class="row2">
-        <div>
-          <label>Окно W</label>
-          <input type="number" id="winW" min="320" />
+      <div class="qa-panel__row2">
+        <div class="qa-panel__field qa-panel__field--inline">
+          <label class="qa-panel__label" for="winW">Окно W</label>
+          <input class="qa-panel__input" type="number" id="winW" name="window_w" min="320" inputmode="numeric" />
         </div>
-        <div>
-          <label>Окно H</label>
-          <input type="number" id="winH" min="240" />
-        </div>
-      </div>
-
-      <div class="row2">
-        <div>
-          <label>Пауза перед скрином (с)</label>
-          <input type="number" id="capWait" min="0" max="120" step="0.5" title="Ожидание после загрузки страницы (анимации, карусели)" />
-        </div>
-        <div></div>
-      </div>
-
-      <div class="row2">
-        <div>
-          <label>Порог отличий %</label>
-          <input type="number" id="thr" step="0.01" min="0" />
-        </div>
-        <div>
-          <label>Порог яркости diff</label>
-          <input type="number" id="pixThr" min="0" max="255" />
+        <div class="qa-panel__field qa-panel__field--inline">
+          <label class="qa-panel__label" for="winH">Окно H</label>
+          <input class="qa-panel__input" type="number" id="winH" name="window_h" min="240" inputmode="numeric" />
         </div>
       </div>
 
-      <div class="row2">
-        <div>
-          <label>Сдвиг px (0–5)</label>
-          <input type="number" id="shift" min="0" max="5" />
+      <div class="qa-panel__row2">
+        <div class="qa-panel__field qa-panel__field--inline">
+          <label class="qa-panel__label" for="capWait">Пауза перед скрином (с)</label>
+          <input class="qa-panel__input" type="number" id="capWait" name="capture_wait" min="0" max="120" step="0.5" inputmode="decimal" title="Ожидание после загрузки страницы (анимации, карусели)" />
         </div>
-        <div>
-          <label>Opening (0–5)</label>
-          <input type="number" id="speck" min="0" max="5" />
+        <div class="qa-panel__field qa-panel__field--spacer" aria-hidden="true"></div>
+      </div>
+
+      <div class="qa-panel__row2">
+        <div class="qa-panel__field qa-panel__field--inline">
+          <label class="qa-panel__label" for="thr">Порог отличий %</label>
+          <input class="qa-panel__input" type="number" id="thr" name="diff_threshold_pct" step="0.01" min="0" inputmode="decimal" />
+        </div>
+        <div class="qa-panel__field qa-panel__field--inline">
+          <label class="qa-panel__label" for="pixThr">Порог яркости diff</label>
+          <input class="qa-panel__input" type="number" id="pixThr" name="pixel_threshold" min="0" max="255" inputmode="numeric" />
         </div>
       </div>
 
-      <div class="checks">
-        <label class="chk"><input type="checkbox" id="figmaRefresh" /> Заново выгрузить макет из Figma (игнор кэша PNG)</label>
-        <label class="chk"><input type="checkbox" id="useGemma" checked /> Описание багов (Ollama)</label>
-        <label class="chk"><input type="checkbox" id="useModel" /> CNN по diff (нужен рабочий PyTorch; при ошибке DLL снимите галочку)</label>
-        <label class="chk"><input type="checkbox" id="gemmaImg" checked /> Картинка diff в модель</label>
+      <div class="qa-panel__row2">
+        <div class="qa-panel__field qa-panel__field--inline">
+          <label class="qa-panel__label" for="shift">Сдвиг px (0–5)</label>
+          <input class="qa-panel__input" type="number" id="shift" name="tolerance_shift_px" min="0" max="5" inputmode="numeric" />
+        </div>
+        <div class="qa-panel__field qa-panel__field--inline">
+          <label class="qa-panel__label" for="speck">Opening (0–5)</label>
+          <input class="qa-panel__input" type="number" id="speck" name="tolerance_speckle" min="0" max="5" inputmode="numeric" />
+        </div>
       </div>
 
-      <button type="button" class="btn primary" id="btnRun">Сравнить с макетом</button>
-      <p class="hint">Перед запуском: <code>FIGMA_ACCESS_TOKEN</code>, Chrome, Ollama (<code>ollama serve</code>). Быстрее всего: в <code>config.json</code> — <code>moondream</code>, окно 1280×720, <code>figma.scale</code> 1, <code>vision_fallback: false</code>; тяжёлый режим — <code>llava</code> и 1920×1080 (минуты на CPU). Панель: <code>python web_server.py</code> → <code>http://127.0.0.1:8765</code> в обычном браузере.</p>
+      <fieldset class="qa-panel__checks">
+        <legend class="qa-panel__checks-legend">Опции сверки</legend>
+        <label class="qa-panel__check">
+          <input type="checkbox" id="figmaRefresh" name="figma_refresh" />
+          <span>Заново выгрузить макет из Figma (игнор кэша PNG; при 429 Too Many Requests оставьте выключенным)</span>
+        </label>
+        <label class="qa-panel__check">
+          <input type="checkbox" id="useGemma" name="use_gemma" checked />
+          <span>Полировка баг-репорта (Ollama, few-shot)</span>
+        </label>
+        <label class="qa-panel__check">
+          <input type="checkbox" id="useModel" name="use_model" />
+          <span>CNN по diff (нужен рабочий PyTorch; при ошибке DLL снимите галочку)</span>
+        </label>
+        <label class="qa-panel__check">
+          <input type="checkbox" id="useFragmentMatcher" name="use_fragment_matcher" checked />
+          <span>Сопоставление фрагментов A|diff|B (отсекает ложные diff)</span>
+        </label>
+        <label class="qa-panel__check">
+          <input type="checkbox" id="gemmaImg" name="gemma_use_image" checked />
+          <span>Картинка diff в модель</span>
+        </label>
+      </fieldset>
+
+      <button type="button" class="qa-panel__btn qa-panel__btn--primary" id="btnRun" aria-busy="false">
+        Сравнить с макетом
+      </button>
+      <p class="qa-panel__hint qa-panel__hint--footer">
+        Перед запуском: <code>FIGMA_ACCESS_TOKEN</code>, Chrome, Ollama (<code>ollama serve</code>). Размер окна W×H должен совпадать с фреймом в Figma (сейчас в config: 1920×1201, <code>figma.frame_size</code>). Быстрый режим — <code>moondream</code>, <code>figma.scale</code> 1; тяжёлый — <code>llava</code> (минуты на CPU). Панель: <code>python web_server.py</code> → <code>http://127.0.0.1:8765</code>.
+      </p>
     </section>
 
-    <section class="card output">
-      <div class="out-head">
-        <h2>Результат</h2>
-        <span class="status idle" id="statusBadge">ожидание</span>
+    <section class="qa-panel__card qa-panel__card--output" aria-labelledby="qa-out-heading">
+      <div class="qa-panel__out-head">
+        <h2 id="qa-out-heading" class="qa-panel__card-title qa-panel__card-title--flat">Результат</h2>
+        <span class="qa-panel__status qa-panel__status--idle" id="statusBadge" role="status" aria-live="assertive">ожидание</span>
       </div>
-      <pre class="log" id="logBox"></pre>
-      <article class="gemma" id="gemmaBox">
-        <h3>Список правок</h3>
-        <div class="md" id="gemmaMd"></div>
+      <pre class="qa-panel__log" id="logBox" role="log" aria-live="polite" aria-relevant="additions" tabindex="0"></pre>
+      <article class="qa-panel__gemma" id="gemmaBox" aria-labelledby="qa-gemma-heading">
+        <h3 id="qa-gemma-heading" class="qa-panel__gemma-title">Список правок</h3>
+        <div class="qa-panel__md" id="gemmaMd"></div>
       </article>
     </section>
   </main>

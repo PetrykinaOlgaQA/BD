@@ -10,7 +10,8 @@ import numpy as np
 
 from src.compare import build_change_mask
 
-_BAND_MIN_FRAC = 0.07
+_BAND_MIN_FRAC = 0.12
+_MIN_EDGE_REPORT_PX = 10
 # Подсказку про кадр показываем в HTML-метриках, не вместо списка багов.
 _FRAME_HINT_ONLY_IF_EMPTY_PCT = 55.0
 # 0 = без верхней границы по числу пунктов
@@ -67,6 +68,8 @@ def _presence_phrases_for_bbox(
     w: int,
     h: int,
     snippet: str = "",
+    *,
+    layout_elements: Optional[List[Any]] = None,
 ) -> List[str]:
     """Контент только на сайте или только в макете Figma."""
     if w < 4 or h < 4:
@@ -74,9 +77,26 @@ def _presence_phrases_for_bbox(
     base_f = _box_content_frac(baseline_rgb, x, y, w, h)
     curr_f = _box_content_frac(current_rgb, x, y, w, h)
     out: List[str] = []
-    if curr_f >= _PRESENCE_MIN_FRAC and base_f <= _ABSENT_MAX_FRAC:
+    on_mockup = curr_f >= _PRESENCE_MIN_FRAC and base_f <= _ABSENT_MAX_FRAC
+    on_page = base_f >= _PRESENCE_MIN_FRAC and curr_f <= _ABSENT_MAX_FRAC
+    if on_mockup or on_page:
+        from src.structural_shift import should_suppress_presence_at_bbox
+
+        if should_suppress_presence_at_bbox(
+            baseline_rgb,
+            current_rgb,
+            x,
+            y,
+            w,
+            h,
+            missing_on_mockup=on_mockup,
+            missing_on_page=on_page,
+            layout_elements=layout_elements,
+        ):
+            return []
+    if on_mockup:
         out.append(_phrase_with_element(_PHRASE_MISSING_ON_MOCKUP, snippet))
-    elif base_f >= _PRESENCE_MIN_FRAC and curr_f <= _ABSENT_MAX_FRAC:
+    elif on_page:
         out.append(_phrase_with_element(_PHRASE_MISSING_ON_PAGE, snippet))
     return out
 
@@ -86,12 +106,23 @@ def _presence_phrases_for_element(
     current_rgb: np.ndarray,
     el: Dict[str, Any],
     snippet: str = "",
+    *,
+    layout_elements: Optional[List[Any]] = None,
 ) -> List[str]:
     try:
         x, y, w, h = int(el["x"]), int(el["y"]), int(el["w"]), int(el["h"])
     except (KeyError, TypeError, ValueError):
         return []
-    return _presence_phrases_for_bbox(baseline_rgb, current_rgb, x, y, w, h, snippet)
+    return _presence_phrases_for_bbox(
+        baseline_rgb,
+        current_rgb,
+        x,
+        y,
+        w,
+        h,
+        snippet,
+        layout_elements=layout_elements,
+    )
 
 
 def _parse_css_px_list(s: str) -> List[float]:
@@ -324,9 +355,9 @@ def _phrases_for_element(
     for edge, _ in hot_edges:
         px = _edge_delta_px(mask, x, y, w, h, edge)
         side = _EDGE_RU[edge]
-        if px and px >= 4:
-            out.append(_phrase_with_element(f"большой отступ {side} (~{px}px)", snippet))
-        else:
+        if px and px >= _MIN_EDGE_REPORT_PX:
+            out.append(_phrase_with_element(f"отступ {side} ~{px}px — не как в макете", snippet))
+        elif px and px >= 6:
             out.append(_phrase_with_element(f"отступ {side} не как в макете", snippet))
 
     pad = _parse_css_px_list(str(el.get("padding", "")))
@@ -398,14 +429,31 @@ def _el_bbox_dict(el: Dict[str, Any]) -> Optional[Dict[str, int]]:
 def is_broken_bug_line(line: str) -> bool:
     """Обрывки, латиница внутри русских слов (артефакт LLM), слишком короткие строки."""
     t = (line or "").strip().lstrip("-• ").strip()
-    if len(t) < 12:
+    if len(t) < 8:
         return True
+    low = t.lower()
+    if any(
+        m in low
+        for m in (
+            "макет",
+            "figma",
+            "diff",
+            "≠",
+            "отличается",
+            "не совпадает",
+            "не как в",
+            "фрагмента нет",
+            "эмодзи",
+            "иконка",
+        )
+    ):
+        return False
     words = re.findall(r"\S+", t)
     if not words:
         return True
     last = words[-1]
-    if len(last) <= 5 and not re.search(r"[.!?…]$", last):
-        if last.lower() not in ("макете", "шапке", "кнопке", "текста", "баннере", "меню"):
+    if len(last) <= 5 and not re.search(r"[.!?…%)]$", last):
+        if last.lower() not in ("макете", "шапке", "кнопке", "текста", "баннере", "меню", "сайте"):
             return True
     for word in words:
         if re.search(r"[a-zA-Z]", word) and re.search(r"[а-яА-ЯёЁ]", word):
@@ -441,6 +489,7 @@ def _collect_phrases_with_elements(
     layout_elements: Optional[List[Any]],
     mask: np.ndarray,
     *,
+    baseline_path: Optional[str] = None,
     baseline_rgb: Optional[np.ndarray] = None,
     current_rgb: Optional[np.ndarray] = None,
     max_lines: int = DEFAULT_MAX_BUG_LINES,
@@ -466,34 +515,105 @@ def _collect_phrases_with_elements(
         and current_rgb is not None
         and baseline_rgb.shape[:2] == current_rgb.shape[:2]
     )
-    for _frac, sn, el, ch in scored:
-        if has_rgb:
-            for p in _presence_phrases_for_element(baseline_rgb, current_rgb, el, snippet=sn):
-                pairs.append((p, el))
-        for p in _phrases_for_element(mask, el, ch, snippet=sn):
-            pairs.append((p, el))
-
-    for cell in hot.get("grid_cells") or []:
-        if not isinstance(cell, dict):
-            continue
-        try:
-            frac = float(cell.get("changed_frac_pct", 0) or 0)
-            x, y, w, h = int(cell["x"]), int(cell["y"]), int(cell["w"]), int(cell["h"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        if frac < 1.5:
-            continue
+    img_h = 720
+    try:
         size = hot.get("mask_size") or [1280, 720]
-        img_w, img_h = int(size[0]), int(size[1])
-        where = _zone_from_bbox(x, y, w, h, img_w, img_h)
-        el_cell = {"x": x, "y": y, "w": w, "h": h, "snippet": f"zone:{where}"}
-        if has_rgb:
-            for p in _presence_phrases_for_bbox(baseline_rgb, current_rgb, x, y, w, h, f"zone:{where}"):
-                pairs.append((p, el_cell))
-        text = f"вёрстка не как в макете {where}"
-        pairs.append((text, el_cell))
+        img_h = int(size[1])
+    except (TypeError, ValueError, IndexError):
+        pass
 
-    if not pairs:
+    typo_items: List[Dict[str, Any]] = []
+    baseline_text_cache = None
+    if has_rgb:
+        try:
+            from src.baseline_text_cache import ensure_baseline_text_cache
+
+            bp = (baseline_path or hot.get("baseline_path") or "").strip()
+            if bp and baseline_rgb is not None:
+                baseline_text_cache = ensure_baseline_text_cache(
+                    bp, baseline_rgb, layout_elements
+                )
+        except Exception:
+            baseline_text_cache = None
+        try:
+            from src.section_compare import build_section_bug_items
+
+            typo_items = build_section_bug_items(
+                layout_elements,
+                baseline_rgb,
+                current_rgb,
+                mask,
+                max_items=16,
+                baseline_text_cache=baseline_text_cache,
+            )
+        except Exception:
+            typo_items = []
+        if not typo_items and scored:
+            try:
+                from src.typography_compare import build_typography_bug_items
+
+                typo_items = build_typography_bug_items(
+                    scored, baseline_rgb, current_rgb, img_h=img_h, max_items=12
+                )
+            except Exception:
+                typo_items = []
+
+    global_diff_pct = float(mask.mean()) * 100.0 if mask is not None and mask.size else 100.0
+
+    pair_cap = max_lines if max_lines > 0 else 20
+    if typo_items:
+        for row in typo_items:
+            el = {k: row[k] for k in ("x", "y", "w", "h", "snippet") if k in row}
+            pairs.append((str(row["text"]), el if el else None))
+    if len(pairs) < pair_cap:
+        for _frac, sn, el, ch in scored:
+            if ch < 4.0:
+                continue
+            if len(pairs) >= pair_cap:
+                break
+            if has_rgb:
+                for p in _presence_phrases_for_element(
+                    baseline_rgb,
+                    current_rgb,
+                    el,
+                    snippet=sn,
+                    layout_elements=layout_elements,
+                ):
+                    pairs.append((p, el))
+            one = _compact_phrase_for_element(mask, el, ch, snippet=sn)
+            if one:
+                pairs.append((one, el))
+
+        for cell in hot.get("grid_cells") or []:
+            if not isinstance(cell, dict):
+                continue
+            try:
+                frac = float(cell.get("changed_frac_pct", 0) or 0)
+                x, y, w, h = int(cell["x"]), int(cell["y"]), int(cell["w"]), int(cell["h"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if frac < 3.0:
+                continue
+            size = hot.get("mask_size") or [1280, 720]
+            img_w, img_h = int(size[0]), int(size[1])
+            where = _zone_from_bbox(x, y, w, h, img_w, img_h)
+            el_cell = {"x": x, "y": y, "w": w, "h": h, "snippet": f"zone:{where}"}
+            if has_rgb:
+                for p in _presence_phrases_for_bbox(
+                    baseline_rgb,
+                    current_rgb,
+                    x,
+                    y,
+                    w,
+                    h,
+                    f"zone:{where}",
+                    layout_elements=layout_elements,
+                ):
+                    pairs.append((p, el_cell))
+            if len(pairs) < 3:
+                pairs.append((f"вёрстка не как в макете {where}", el_cell))
+
+    if not pairs and global_diff_pct >= 1.0:
         for p in _phrases_from_grid(hot):
             pairs.append((p, None))
 
@@ -507,6 +627,9 @@ def _collect_phrases_with_elements(
         deduped.append((phrase.strip(), el))
         if max_lines > 0 and len(deduped) >= max_lines:
             break
+    cap = max_lines if max_lines > 0 else 14
+    if len(deduped) > cap:
+        deduped = deduped[:cap]
     return deduped
 
 
@@ -520,6 +643,7 @@ def build_bug_report_items(
     tolerance_shift_px: int = 2,
     tolerance_speckle_iter: int = 1,
     max_lines: int = DEFAULT_MAX_BUG_LINES,
+    stats_sink: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """Пункты баг-репорта с привязкой к bbox для миниатюр в HTML."""
     mask: Optional[np.ndarray] = None
@@ -545,6 +669,7 @@ def build_bug_report_items(
         hot,
         layout_elements,
         mask,
+        baseline_path=baseline_path,
         baseline_rgb=baseline_rgb,
         current_rgb=current_rgb,
         max_lines=max_lines,
@@ -560,7 +685,21 @@ def build_bug_report_items(
             if bb:
                 row.update(bb)
         items.append(row)
-    return group_bug_items_by_region(sanitize_bug_items(items))
+    items = sanitize_bug_items(items)
+    if baseline_rgb is not None and current_rgb is not None:
+        from src.structural_shift import filter_structural_shift_bug_items
+
+        items, n_shift = filter_structural_shift_bug_items(
+            items,
+            baseline_rgb=baseline_rgb,
+            current_rgb=current_rgb,
+            layout_elements=layout_elements,
+        )
+        if stats_sink is not None and n_shift:
+            stats_sink["structural_shift_filtered"] = int(
+                stats_sink.get("structural_shift_filtered", 0)
+            ) + n_shift
+    return group_bug_items_by_region(items)
 
 
 def _region_group_key(it: Dict[str, Any]) -> str:
@@ -593,6 +732,125 @@ def merge_bug_texts_comma(texts: List[str]) -> str:
         seen.add(k)
         parts.append(core)
     return ", ".join(parts)
+
+
+def _match_existing_item_for_phrase(
+    phrase: str,
+    existing: List[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Ищет старый пункт с похожим текстом (для переноса bbox)."""
+    pk = _phrase_key(phrase)
+    if not pk:
+        return None
+    best: Optional[Dict[str, Any]] = None
+    best_len = 0
+    low = phrase.lower()
+    hints = ("кнопк", "баннер", "карточ", "подвал", "центр", "отступ", "шрифт", "padding", "заказать")
+    for it in existing:
+        if not isinstance(it, dict):
+            continue
+        t = str(it.get("text", "")).strip()
+        if not t:
+            continue
+        tk = _phrase_key(t)
+        matched = pk == tk or pk in tk or tk in pk
+        if not matched:
+            tl = t.lower()
+            matched = any(h in low and h in tl for h in hints)
+        if matched:
+            try:
+                has_bb = int(it.get("w", 0)) > 0 and int(it.get("h", 0)) > 0
+            except (TypeError, ValueError):
+                has_bb = False
+            score = len(tk) + (1000 if has_bb else 0)
+            if score > best_len:
+                best = it
+                best_len = score
+    return best
+
+
+def bug_items_from_polished_lines(
+    polished_lines: List[str],
+    layout_elements: Optional[List[Any]],
+    existing_items: Optional[List[Dict[str, Any]]] = None,
+    *,
+    baseline_path: Optional[str] = None,
+    current_path: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Таблица баг-репорта = список Ollama (источник истины).
+    К каждой строке подбирается bbox/snippet из layout или из старых пунктов diff.
+    """
+    from src.block_crops import element_bbox, find_element_for_bug_item
+
+    existing = [x for x in (existing_items or []) if isinstance(x, dict)]
+    out: List[Dict[str, Any]] = []
+    for raw in polished_lines:
+        phrase = str(raw).strip().lstrip("-• ").strip()
+        if not phrase or is_broken_bug_line(phrase) or is_legacy_verbose_bug_line(phrase):
+            continue
+        prev = _match_existing_item_for_phrase(phrase, existing)
+        el = find_element_for_bug_item(phrase, layout_elements or [], prev)
+        row: Dict[str, Any] = {"text": phrase}
+        if el:
+            sn = str(el.get("snippet", "")).strip()
+            if sn:
+                row["snippet"] = sn
+            bb = element_bbox(el)
+            if bb:
+                row["x"], row["y"], row["w"], row["h"] = bb
+        if prev and not all(k in row for k in ("x", "y", "w", "h")):
+            for k in ("snippet", "x", "y", "w", "h"):
+                if k in prev:
+                    row[k] = prev[k]
+        if not all(k in row for k in ("x", "y", "w", "h")) and el is None:
+            el2 = find_element_for_bug_item(phrase, layout_elements or [], None)
+            if el2:
+                bb2 = element_bbox(el2)
+                if bb2:
+                    row["x"], row["y"], row["w"], row["h"] = bb2
+                    sn2 = str(el2.get("snippet", "")).strip()
+                    if sn2:
+                        row["snippet"] = sn2
+        out.append(row)
+    out = sanitize_bug_items(out)
+    if baseline_path and current_path:
+        from src.structural_shift import filter_items_with_paths
+
+        out, _ = filter_items_with_paths(
+            out, baseline_path, current_path, layout_elements
+        )
+    return out
+
+
+def sync_bug_items_with_polished_lines(
+    items: List[Dict[str, Any]],
+    polished_lines: List[str],
+) -> List[Dict[str, Any]]:
+    """Устаревший путь: только подмена текста по индексу. Предпочтительно bug_items_from_polished_lines."""
+    lines = [str(x).strip() for x in polished_lines if str(x).strip()]
+    if not items or not lines:
+        return items
+
+    def _sort_key(it: Dict[str, Any]) -> tuple[int, int]:
+        try:
+            return (int(it.get("y", 0)), int(it.get("x", 0)))
+        except (TypeError, ValueError):
+            return (0, 0)
+
+    sorted_items = sorted(
+        [dict(x) for x in items if isinstance(x, dict)],
+        key=_sort_key,
+    )
+    out: List[Dict[str, Any]] = []
+    for i, row in enumerate(sorted_items):
+        if i < len(lines):
+            row["text"] = lines[i]
+            bugs = row.get("bugs")
+            if isinstance(bugs, list) and len(bugs) > 1:
+                row["bugs"] = [lines[i]]
+        out.append(row)
+    return out
 
 
 def group_bug_items_by_region(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

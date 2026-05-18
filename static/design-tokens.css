@@ -1,0 +1,96 @@
+/**
+ * Design tokens — веб-панель «Сайт vs Figma» (web_server).
+ * Базовая сетка: 4px. Значения выровнены под текущий UI как v1 baseline.
+ * Для pixel-perfect с вашим макетом: замените числа на экспорт из Figma Dev Mode
+ * и сверяйте с docs/kursovaya (рис. веб-панели) или приложите mockup-specs.md.
+ */
+:root {
+  /* Spacing (4px grid) */
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+  --space-9: 40px;
+  --space-10: 48px;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-pill: 999px;
+
+  /* Color */
+  --color-bg: #0b0f14;
+  --color-surface: #121922;
+  --color-card: #161f2a;
+  --color-border: #243044;
+  --color-text: #e8edf4;
+  --color-text-muted: #8b9cb3;
+  --color-text-code: #b8c5d6;
+  --color-text-md: #c5d0e0;
+  --color-accent: #3ee8b0;
+  --color-accent-dim: #2a9d7a;
+  --color-accent-2: #2dd4bf;
+  --color-warn: #f59e0b;
+  --color-fail: #f87171;
+  --color-pass: #4ade80;
+  --color-on-accent: #04120d;
+  --color-error-bg: rgba(248, 113, 113, 0.08);
+  --color-grid-line: rgba(62, 232, 176, 0.03);
+
+  /* Typography */
+  --font-family-ui: "Outfit", system-ui, sans-serif;
+  --font-family-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-size-2xs: 11px;
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-md: 14px;
+  --font-size-base: 16px;
+  --font-size-lg: 18px;
+  --font-size-xl: 22px;
+  --font-weight-regular: 400;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --line-height-tight: 1.25;
+  --line-height-body: 1.5;
+  --line-height-code: 1.4;
+  --letter-spacing-tight: -0.02em;
+  --letter-spacing-caps: 0.06em;
+
+  /* Layout */
+  --layout-max-width: 1280px;
+  --layout-sidebar: 380px;
+  --layout-sidebar-min: 300px;
+  --breakpoint-md: 900px;
+
+  /* Elevation */
+  --shadow-card: 0 12px 40px rgba(0, 0, 0, 0.35);
+  --shadow-btn-hover: 0 8px 28px rgba(62, 232, 176, 0.35);
+  --shadow-focus-ring: 0 0 0 2px rgba(62, 232, 176, 0.15);
+  --shadow-logo: 0 0 24px rgba(62, 232, 176, 0.45);
+
+  /* Motion */
+  --duration-fast: 120ms;
+  --ease-standard: ease;
+
+  /* Legacy aliases (постепенно выводим из app.css) */
+  --bg: var(--color-bg);
+  --surface: var(--color-surface);
+  --card: var(--color-card);
+  --border: var(--color-border);
+  --text: var(--color-text);
+  --muted: var(--color-text-muted);
+  --accent: var(--color-accent);
+  --accent-dim: var(--color-accent-dim);
+  --warn: var(--color-warn);
+  --fail: var(--color-fail);
+  --pass: var(--color-pass);
+  --font: var(--font-family-ui);
+  --mono: var(--font-family-mono);
+}

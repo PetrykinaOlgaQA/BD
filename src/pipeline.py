@@ -7,10 +7,15 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 from src.capture import capture_screenshot
 from src.compare import CompareResult, compare_screenshots
-from src.bug_reports import build_bug_report_items, draft_lines_to_text, sanitize_bug_lines
+from src.bug_reports import (
+    build_bug_report_items,
+    draft_lines_to_text,
+    sanitize_bug_lines,
+    bug_items_from_polished_lines,
+)
 from src.diff_hotspots import analyze_diff_for_qa
-from src.figma_client import export_frame_png, public_design_url
-from src.gemma_client import refine_bug_lines_ru
+from src.figma_client import FigmaRateLimitError, export_frame_png, public_design_url
+from src.gemma_client import explain_diff_ru, refine_bug_lines_ru
 from src.pipeline_types import FigmaVsSiteConfig, RunConfig, RunOutcome
 from src.report import append_text_report, write_html_report, write_json_sidecar
 
@@ -105,11 +110,66 @@ def run_pipeline(cfg: RunConfig, log: Optional[Callable[[str], None]] = None) ->
         pixel_threshold=cfg.pixel_threshold,
         tolerance_shift_px=cfg.tolerance_shift_px,
         tolerance_speckle_iter=cfg.tolerance_speckle_iter,
+        stats_sink=stats,
     )
+    bug_items_pre_fragment = [dict(x) for x in bug_items if isinstance(x, dict)]
+    stats["bug_report_items_pre_fragment"] = bug_items_pre_fragment
+    stats.setdefault("structural_shift_filtered", 0)
+    frag_meta: Dict[str, Any] = {"fragment_matcher_used": False}
+    if cfg.use_fragment_matcher and bug_items:
+        try:
+            from src.fragment_match.filter_bugs import apply_fragment_matcher_to_bug_items
+            from src.fragment_match.inference import load_fragment_matcher
+
+            fhandle = None
+            if cfg.fragment_matcher_path:
+                fhandle, _ = load_fragment_matcher(cfg.fragment_matcher_path)
+            vp = raw_layout.get("viewport") if isinstance(raw_layout, dict) else {}
+            try:
+                vw = int(vp.get("w", cfg.window_size[0]))
+                vh = int(vp.get("h", cfg.window_size[1]))
+            except (TypeError, ValueError, AttributeError):
+                vw, vh = cfg.window_size[0], cfg.window_size[1]
+            bug_items, frag_meta = apply_fragment_matcher_to_bug_items(
+                bug_items,
+                baseline_path=cfg.baseline_path,
+                current_path=cur,
+                diff_path=cr.diff_path,
+                matcher=fhandle,
+                same_threshold=float(cfg.fragment_match_threshold),
+                layout_elements=els_for_hotspots,
+                viewport=(vw, vh),
+            )
+            frag_meta["fragment_matcher_used"] = True
+            if log:
+                log(
+                    f"Fragment matcher: оценено {frag_meta.get('fragment_match_scored', 0)}, "
+                    f"отфильтровано ложных {frag_meta.get('fragment_match_filtered', 0)} "
+                    f"({frag_meta.get('fragment_match_metric', '')})"
+                )
+        except OSError as e:
+            if log:
+                log(f"Fragment matcher: пропуск ({e})")
+    sf = int(stats.get("structural_shift_filtered", 0) or 0)
+    if sf and log:
+        log(
+            f"Сдвиг вёрстки: убрано ложных «фрагмента нет на макете/странице» — {sf} "
+            f"(вставка блока между одинаковыми секциями)"
+        )
+    if not bug_items and bug_items_pre_fragment:
+        bug_items = bug_items_pre_fragment
+        frag_meta["fragment_match_fallback_kept_all"] = True
+        if log:
+            log(
+                "Fragment matcher: после фильтра не осталось пунктов — "
+                "оставлен исходный список diff (для Ollama и таблицы)."
+            )
+    stats.update(frag_meta)
     stats["bug_report_items"] = bug_items
+    draft_source = bug_items_pre_fragment if bug_items_pre_fragment else bug_items
     stats["diff_hotspots_tasks"] = [
         str(it.get("text", "")).strip()
-        for it in bug_items
+        for it in draft_source
         if isinstance(it, dict) and str(it.get("text", "")).strip()
     ]
     stats["layout_elements_for_crops"] = (
@@ -122,30 +182,104 @@ def run_pipeline(cfg: RunConfig, log: Optional[Callable[[str], None]] = None) ->
     ]
 
     gemma_text = draft_lines_to_text(draft_lines) if draft_lines else ""
-    if cfg.use_gemma and getattr(cfg, "refine_bug_text", False):
+    polish = bool(getattr(cfg, "ollama_polish_bugs", getattr(cfg, "refine_bug_text", True)))
+    bug_mode = str(getattr(cfg, "ollama_bug_report_mode", "text") or "text").lower()
+    # Не переписывать детерминированный отчёт (текст/шрифты) через LLM — только раздувает и портит формулировки.
+    if bug_items and any(
+        "[" in str(it.get("text", ""))
+        or "текст раздела" in str(it.get("text", "")).lower()
+        or "текст не совпадает" in str(it.get("text", "")).lower()
+        or "шрифт на сайте" in str(it.get("text", "")).lower()
+        for it in bug_items
+        if isinstance(it, dict)
+    ):
+        polish = False
+        stats["ollama_bug_polish_skipped"] = "typography_report"
+    if cfg.use_gemma and polish:
         if cfg.baseline_is_figma:
             gctx = f"эталон — кадр макета из Figma (PNG {os.path.basename(cfg.baseline_path)}); под тестом страница: {cfg.url}"
         else:
             gctx = f"эталон (файл): {os.path.basename(cfg.baseline_path)}; страница: {cfg.url}"
-        if log:
-            log(
-                f"Ollama ({cfg.gemma_model}): перефразирование баг-репорта "
-                f"(read≤{int(cfg.ollama_timeout_read)} с)…"
-            )
-        refined = refine_bug_lines_ru(
-            cfg.ollama_url,
-            cfg.gemma_model,
-            draft_lines,
-            stats,
-            context_label=gctx,
+        ollama_kw = dict(
             ollama_timeout=(float(cfg.ollama_timeout_connect), float(cfg.ollama_timeout_read)),
             max_post_retries=int(cfg.ollama_max_retries),
         )
+        vision_txt = ""
+        if bug_mode in ("vision", "both") and cfg.gemma_use_image and cr.diff_path:
+            if log:
+                log(
+                    f"Ollama ({cfg.gemma_model}): разбор diff по картинке "
+                    f"(read≤{int(cfg.ollama_timeout_read)} с)…"
+                )
+            vision_txt = explain_diff_ru(
+                cfg.ollama_url,
+                cfg.gemma_model,
+                stats,
+                cr.diff_path,
+                use_image=True,
+                context_label=gctx,
+                vision_fallback=bool(cfg.ollama_vision_fallback),
+                try_generate_fallback=bool(cfg.ollama_try_generate_fallback),
+                fallback_on_empty=bool(cfg.ollama_fallback_on_empty),
+                image_max_side=int(cfg.ollama_image_max_side),
+                **ollama_kw,
+            )
+        refine_in = draft_lines
+        if bug_mode == "both" and vision_txt.strip():
+            refine_in = [
+                ln.strip().lstrip("-• ").strip()
+                for ln in vision_txt.splitlines()
+                if ln.strip()
+            ] or draft_lines
+        refined_raw = vision_txt
+        if bug_mode in ("text", "both") and refine_in:
+            if log:
+                log(
+                    f"Ollama ({cfg.gemma_model}): полировка баг-репорта "
+                    f"(read≤{int(cfg.ollama_timeout_read)} с)…"
+                )
+            refine_draft = [
+                (s if str(s).strip().startswith("-") else "- " + str(s).strip())
+                for s in refine_in
+                if str(s).strip()
+            ]
+            refined_raw = refine_bug_lines_ru(
+                cfg.ollama_url,
+                cfg.gemma_model,
+                refine_draft,
+                stats,
+                context_label=gctx,
+                **ollama_kw,
+            )
         refined_lines = sanitize_bug_lines(
-            [ln.strip().lstrip("-• ").strip() for ln in (refined or "").splitlines() if ln.strip()]
+            [ln.strip().lstrip("-• ").strip() for ln in (refined_raw or "").splitlines() if ln.strip()]
         )
-        if refined_lines and len(refined_lines) >= max(2, len(draft_lines) // 2):
+        min_ok = max(1, len(draft_lines) // 3) if draft_lines else 1
+        if refined_lines and len(refined_lines) >= min_ok:
             gemma_text = draft_lines_to_text(["- " + s for s in refined_lines])
+            bug_items = bug_items_from_polished_lines(
+                refined_lines,
+                els_for_hotspots,
+                bug_items_pre_fragment or bug_items,
+                baseline_path=cfg.baseline_path,
+                current_path=cur,
+            )
+            from src.structural_shift import filter_items_with_paths
+
+            n_before = len(bug_items)
+            bug_items, _ = filter_items_with_paths(
+                bug_items,
+                cfg.baseline_path,
+                cur,
+                els_for_hotspots,
+            )
+            stats["structural_shift_filtered"] = int(stats.get("structural_shift_filtered", 0)) + max(
+                0, n_before - len(bug_items)
+            )
+            stats["bug_report_items"] = bug_items
+            stats["diff_hotspots_tasks"] = [str(it.get("text", "")).strip() for it in bug_items if str(it.get("text", "")).strip()]
+            stats["ollama_bug_polish"] = True
+            stats["ollama_bug_lines"] = list(refined_lines)
     lines = [
         f"URL: {cfg.url}",
         f"STATUS: {'PASS' if ok else 'FAIL'}",
@@ -215,6 +349,33 @@ def run_pipeline(cfg: RunConfig, log: Optional[Callable[[str], None]] = None) ->
     )
 
 
+def _align_baseline_png_to_window(
+    png_path: str,
+    window_size: Tuple[int, int],
+    log: Optional[Callable[[str], None]] = None,
+) -> None:
+    """Подгоняет PNG макета под window_size (1:1 с фреймом Figma)."""
+    try:
+        from PIL import Image
+    except ImportError:
+        return
+    if not os.path.isfile(png_path):
+        return
+    try:
+        im = Image.open(png_path).convert("RGB")
+    except OSError:
+        return
+    tw, th = int(window_size[0]), int(window_size[1])
+    if tw < 320 or th < 200:
+        return
+    if im.size == (tw, th):
+        return
+    im = im.resize((tw, th), Image.Resampling.LANCZOS)
+    im.save(png_path, format="PNG", optimize=True)
+    if log:
+        log(f"         макет приведён к размеру окна {tw}×{th} px (как фрейм Figma)")
+
+
 def run_figma_vs_site(
     cfg: FigmaVsSiteConfig,
     log: Optional[Callable[[str], None]] = None,
@@ -238,17 +399,29 @@ def run_figma_vs_site(
             "Чтобы обновить из макета: FIGMA_FORCE_REFRESH=1 или figma.use_cached_png=false в config."
         )
         L(f"         файл: {png_path}")
+        _align_baseline_png_to_window(png_path, cfg.window_size, log=L)
     else:
         L("Шаг 1/2: загружаю кадр макета из Figma (свежий экспорт, без кэша)…")
-        export_frame_png(
-            cfg.figma_file_key,
-            cfg.figma_node_id,
-            cfg.figma_token,
-            png_path,
-            scale=max(1, min(4, int(cfg.figma_scale))),
-            log=L if log else None,
-        )
-        L(f"         макет сохранён: {png_path}")
+        try:
+            export_frame_png(
+                cfg.figma_file_key,
+                cfg.figma_node_id,
+                cfg.figma_token,
+                png_path,
+                scale=max(1, min(4, int(cfg.figma_scale))),
+                log=L if log else None,
+            )
+            L(f"         макет сохранён: {png_path}")
+            _align_baseline_png_to_window(png_path, cfg.window_size, log=L)
+        except FigmaRateLimitError:
+            if os.path.isfile(png_path) and os.path.getsize(png_path) > 64:
+                L(
+                    "         Figma API: лимит 429 — беру ранее сохранённый PNG (кэш), "
+                    "сверка продолжится. Обновите макет позже без галочки «Заново выгрузить»."
+                )
+                L(f"         файл: {png_path}")
+            else:
+                raise
     L("Шаг 2/2: скриншот сайта и сравнение с макетом…")
     rc = RunConfig(
         url=cfg.site_url,
@@ -277,7 +450,12 @@ def run_figma_vs_site(
         ollama_vision_fallback=bool(cfg.ollama_vision_fallback),
         ollama_try_generate_fallback=bool(cfg.ollama_try_generate_fallback),
         ollama_fallback_on_empty=bool(cfg.ollama_fallback_on_empty),
-        refine_bug_text=bool(getattr(cfg, "refine_bug_text", False)),
+        refine_bug_text=bool(getattr(cfg, "refine_bug_text", True)),
+        ollama_polish_bugs=bool(getattr(cfg, "ollama_polish_bugs", True)),
+        ollama_bug_report_mode=str(getattr(cfg, "ollama_bug_report_mode", "text")),
+        fragment_matcher_path=getattr(cfg, "fragment_matcher_path", None),
+        use_fragment_matcher=bool(getattr(cfg, "use_fragment_matcher", False)),
+        fragment_match_threshold=float(getattr(cfg, "fragment_match_threshold", 0.55)),
     )
     out = run_pipeline(rc, log=log)
     if log:

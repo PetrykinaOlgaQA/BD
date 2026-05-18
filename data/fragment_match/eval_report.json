@@ -1,0 +1,23 @@
+{
+  "test_accuracy_at_calibrated_threshold": 0.9557142857142857,
+  "test_accuracy_at_0_5": 0.9542857142857143,
+  "calibrated_threshold": 0.2,
+  "saved_checkpoint_threshold": 0.5,
+  "val_calibration": {
+    "threshold": 0.2,
+    "f1": 0.9460227272727273,
+    "precision": 0.8975741239892183,
+    "recall": 1.0
+  },
+  "accuracy_by_noise_type": {
+    "blur": 0.9491525423728814,
+    "stripe": 0.948,
+    "random": 0.9719626168224299
+  },
+  "robustness_same_A_by_noise_ratio": {
+    "ratio_0.20": 1.0,
+    "ratio_0.33": 1.0,
+    "ratio_0.45": 1.0,
+    "ratio_0.60": 1.0
+  }
+}

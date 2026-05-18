@@ -80,6 +80,10 @@ class OllamaVisionBlock:
     fallback_on_empty: bool = True
     timeout_connect: float = 60.0
     timeout_read: float = 300.0
+    # Полировка текста багов (черновик из diff → Ollama → таблица отчёта)
+    polish_bug_text: bool = True
+    # text = только черновик; vision = картинка diff; both = vision затем полировка
+    bug_report_mode: str = "text"
 
 
 @dataclass
@@ -95,6 +99,9 @@ class AppConfig:
     screenshot_dir: str = "shots"
     reports_dir: str = "reports"
     model_path: str = "weights/diff_cnn.pt"
+    fragment_matcher_path: str = "weights/fragment_matcher.pt"
+    use_fragment_matcher: bool = True
+    fragment_match_threshold: float = 0.55
     compare: CompareBlock = field(default_factory=CompareBlock)
     ollama: OllamaVisionBlock = field(default_factory=OllamaVisionBlock)
     raw: Dict[str, Any] = field(default_factory=dict)
@@ -156,12 +163,17 @@ def parse_app_config(raw: Dict[str, Any], project_root: str) -> AppConfig:
         fallback_on_empty=bool(ol.get("fallback_on_empty", True)),
         timeout_connect=_clamp_float(ol.get("timeout_connect", 60.0), 5.0, 600.0, 60.0),
         timeout_read=_clamp_float(ol.get("timeout_read", 300.0), 30.0, 3600.0, 300.0),
+        polish_bug_text=bool(ol.get("polish_bug_text", raw.get("refine_bug_text", True))),
+        bug_report_mode=str(ol.get("bug_report_mode", "text")).strip().lower() or "text",
     )
 
     url = str(raw.get("url_site") or raw.get("url_local") or "").strip()
+    frame_size = _pair_size(fg.get("frame_size"), (0, 0))
+    win_default = frame_size if frame_size[0] > 0 and frame_size[1] > 0 else (1280, 720)
+    window_size = _pair_size(raw.get("window_size"), win_default)
     cfg = AppConfig(
         url_site=url,
-        window_size=_pair_size(raw.get("window_size"), (1280, 720)),
+        window_size=window_size,
         figma=fb,
         tolerance_shift_px=_clamp_int(raw.get("tolerance_shift_px", 2), 0, 5, 2),
         tolerance_speckle_iter=_clamp_int(raw.get("tolerance_speckle_iter", 1), 0, 5, 1),
@@ -171,6 +183,12 @@ def parse_app_config(raw: Dict[str, Any], project_root: str) -> AppConfig:
         screenshot_dir=str(raw.get("screenshot_dir", "shots")).strip() or "shots",
         reports_dir=str(raw.get("reports_dir", "reports")).strip() or "reports",
         model_path=str(raw.get("model_path", "weights/diff_cnn.pt")).strip() or "weights/diff_cnn.pt",
+        fragment_matcher_path=str(
+            raw.get("fragment_matcher_path", "weights/fragment_matcher.pt")
+        ).strip()
+        or "weights/fragment_matcher.pt",
+        use_fragment_matcher=bool(raw.get("use_fragment_matcher", True)),
+        fragment_match_threshold=_clamp_float(raw.get("fragment_match_threshold", 0.55), 0.0, 1.0, 0.55),
         compare=cb,
         ollama=ob,
         raw=dict(raw),
@@ -205,6 +223,7 @@ def app_config_to_figma_vs_site(
     use_gemma: bool = True,
     use_model: bool = True,
     gemma_use_image: bool = True,
+    use_fragment_matcher: Optional[bool] = None,
 ) -> FigmaVsSiteConfig:
     """Собирает существующий dataclass пайплайна из AppConfig."""
     out_png = cfg.resolved_design_png(project_root)
@@ -238,5 +257,14 @@ def app_config_to_figma_vs_site(
         ollama_vision_fallback=bool(cfg.ollama.vision_fallback),
         ollama_try_generate_fallback=bool(cfg.ollama.try_generate_fallback),
         ollama_fallback_on_empty=bool(cfg.ollama.fallback_on_empty),
-        refine_bug_text=bool(cfg.raw.get("refine_bug_text", False)),
+        refine_bug_text=bool(cfg.ollama.polish_bug_text),
+        ollama_polish_bugs=bool(cfg.ollama.polish_bug_text),
+        ollama_bug_report_mode=str(cfg.ollama.bug_report_mode or "text"),
+        fragment_matcher_path=abs_if_rel(project_root, cfg.fragment_matcher_path),
+        use_fragment_matcher=(
+            bool(cfg.use_fragment_matcher)
+            if use_fragment_matcher is None
+            else bool(use_fragment_matcher)
+        ),
+        fragment_match_threshold=float(cfg.fragment_match_threshold),
     )

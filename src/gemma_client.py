@@ -11,6 +11,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 import requests
 from PIL import Image
 
+from src.bug_report_prompts import refine_draft_prompt, vision_diff_prompt_header
 from src.utils import CAPTURE_WAIT_TYPING_OK_SEC, stats_capture_wait_seconds
 from urllib3.exceptions import IncompleteRead, ProtocolError
 
@@ -473,18 +474,15 @@ def _compact_verifier_prompt(
     pass_rule = ""
     if low_diff_block.strip():
         pass_rule = f"Если diff в пределах порога — одна строка:\n{_VERIFIER_NO_DIFF_LINE}\n\n"
-    return (
-        "По картинке diff (макет Figma vs сайт) дай только список правок на русском.\n"
-        "Формат: каждая строка с '- ', элемент — действие (тире « — » между ними).\n"
-        "Без вступления, без ```, без координат px.\n\n"
-        f"{pass_rule}"
-        f"Контекст: {(context_label or '').strip() or '—'}\n"
-        f"Метрики: MSE≈{mse_v}, изменённые пиксели≈{cr_v}%, порог≈{th_v}%.\n\n"
-        f"{tasks_txt}"
-        "Пример:\n"
-        "- div.wrapper — размер не совпадает с макетом, padding сверху на 12px больше\n"
-        "- h1 — шрифт не совпадает с макетом\n"
+    header = vision_diff_prompt_header(
+        context_label=context_label,
+        mse_v=mse_v,
+        cr_v=cr_v,
+        th_v=th_v,
+        low_diff_block=pass_rule,
+        task_lines=task_lines,
     )
+    return header + tasks_txt
 
 
 def _vision_fallback_candidates(names: List[str], primary: str) -> List[str]:
@@ -951,20 +949,10 @@ def refine_bug_lines_ru(
         cr = 0.0
 
     draft_txt = "\n".join(f"- {s}" for s in clean[:12])
-    prompt = (
-        "Ты редактор баг-репорта по вёрстке (Figma vs сайт).\n"
-        "Перепиши черновик в короткий список для разработчика.\n\n"
-        "ПРАВИЛА:\n"
-        "- Только строки с «- » (русский).\n"
-        "- 4–10 коротких багов по вёрстке из черновика; без дублей.\n"
-        "- НЕ пиши div, .class, селекторы — только смысл: «большой отступ сверху в шапке», «кнопка ниже макета».\n"
-        "- НЕ заменяй весь список фразой «выровняйте window_size» — это запрещено, если в черновике есть баги.\n"
-        "- Про кадр/масштаб — максимум одна строка в конце, и только если diff очень большой.\n\n"
-        f"Контекст: {(context_label or '').strip() or '—'}\n"
-        f"Изменённые пиксели (diff): ~{cr:g}%\n\n"
-        "Черновик:\n"
-        f"{draft_txt}\n\n"
-        "Ответ — только список."
+    prompt = refine_draft_prompt(
+        draft_txt,
+        context_label=context_label,
+        changed_ratio_pct=cr,
     )
     try:
         raw = _call_ollama_with_fallbacks(
@@ -1070,45 +1058,26 @@ def explain_diff_ru(
     mse_v = st_for_llm.get("mse", "—")
     cr_v = st_for_llm.get("changed_ratio_pct", "—")
     th_v = st_for_llm.get("threshold_pct", "—")
+    tasks_raw = stats.get("diff_hotspots_tasks")
+    task_lines = [str(t) for t in tasks_raw[:12]] if isinstance(tasks_raw, list) else None
 
+    header = vision_diff_prompt_header(
+        context_label=context_label,
+        mse_v=mse_v,
+        cr_v=cr_v,
+        th_v=th_v,
+        low_diff_block=low_diff_block,
+        task_lines=task_lines,
+    )
     lines = [
-        "Сравни макет Figma и страницу по diff-картинке и JSON. Ответ — только список правок для баг-репорта.",
-        "",
-        "ФОРМАТ ОТВЕТА (обязательно):",
-        "Только строки, начинающиеся с '- '. Русский язык. Без заголовков, без вступления, без ```, без нумерации 1.",
-        "Один HTML-элемент — одна строка. Формат: «селектор или текст» — «кратко, через запятую».",
-        "Примеры формулировок: размер не совпадает с макетом; шрифт не совпадает с макетом; padding сверху на 12px больше; отступ слева не совпадает с макетом.",
-        "Несколько проблем у одного элемента — в одной строке через запятую, не дублируй отдельные строки на тот же блок.",
-        "Запрещено: «Блок … явно не совпадает», «сравни с макетом размер текста и отступы», длинные абзацы.",
-        "",
-        *(low_diff_block.splitlines() if low_diff_block else []),
-        *([""] if low_diff_block else []),
-        "ЗАПРЕЩЕНО: участок, полоса, вертикальн, ячейка сетки, по маске, diff красн, координаты px, «проверьте блоки», общие фразы без имени элемента.",
-        "В JSON diff_hotspots без сетки — не описывай зоны координатами; называй блок и действие.",
-        "",
-        "FEW_SHOT (только формат):",
-        "- .corporate-banner — размер не совпадает с макетом, padding сверху на 8px больше",
-        "- h1 — шрифт не совпадает с макетом",
-        "- .brand-gallery__inner — отступ слева не совпадает с макетом",
-        "- Текст «Заказать» — выровнять по центру",
-        "",
-        "Оформление текста: в начале пункта можно выделить элемент жирным через Markdown **…** "
-        "(например: - **Текст «Корпоративные сайты»** — увеличить размер). Другие теги HTML/Markdown не использовать.",
+        header,
         "",
         "<DATA>",
-        "Контекст:",
-        (context_label or "").strip() or "—",
-        "",
-        "Метрики:",
-        f"MSE ≈ {mse_v}, изменённые пиксели ≈ {cr_v}%, порог PASS ≈ {th_v}%.",
-        "",
-        "JSON:",
+        "JSON (метрики и пересечения с layout):",
         json.dumps(st_for_llm, ensure_ascii=False, indent=2),
         "</DATA>",
     ]
     prompt = "\n".join(lines)
-    tasks_raw = stats.get("diff_hotspots_tasks")
-    task_lines = [str(t) for t in tasks_raw[:12]] if isinstance(tasks_raw, list) else None
     compact = _compact_verifier_prompt(
         context_label,
         mse_v,

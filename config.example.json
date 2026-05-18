@@ -1,6 +1,6 @@
 {
-  "url_site": "https://norvikbank.ru/?ysclid=mp626mlu2920494361",
-  "window_size": [1280, 720],
+  "url_site": "https://dterra.ru/career/",
+  "window_size": [1920, 9808],
   "capture_wait_seconds": 4,
   "tolerance_shift_px": 2,
   "tolerance_speckle_iter": 1,
@@ -9,6 +9,9 @@
   "screenshot_dir": "shots",
   "reports_dir": "reports",
   "model_path": "weights/diff_cnn.pt",
+  "fragment_matcher_path": "weights/fragment_matcher.pt",
+  "use_fragment_matcher": true,
+  "fragment_match_threshold": 0.55,
   "figma": {
     "file_key": "KqJfoHyA6re2zYzDmriMT2",
     "node_id": "19:2",
@@ -36,8 +39,11 @@
     "fallback_on_empty": true,
     "try_generate_fallback": false,
     "timeout_connect": 60,
-    "timeout_read": 300
+    "timeout_read": 300,
+    "polish_bug_text": true,
+    "bug_report_mode": "text"
   },
+  "refine_bug_text": true,
   "_comment_urls": "url_site и figma.frame_url подставляются в веб-панель из этого файла (или из config.json). file_key + node_id нужны API Figma; frame_url — та же ссылка, что в браузере.",
   "_comment_ollama": "moondream быстрее llava; при пустом ответе: fallback_on_empty true (одна попытка llava). vision_fallback true — перебирать все vision-модели (дольше). timeout_read — макс. одного HTTP к Ollama (сек.).",
   "_comment_legacy": "Поля ollama_url и gemma_model на верхнем уровне тоже поддерживаются для старых конфигов."

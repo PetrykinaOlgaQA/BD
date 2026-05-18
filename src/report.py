@@ -11,8 +11,11 @@ from typing import Any, Dict, List, Optional
 from src.block_crops import (
     element_bbox,
     find_element_for_bug_item,
+    image_size,
+    refine_bug_table_bbox,
     save_highlight_crop,
     save_plain_crop,
+    scale_bbox,
 )
 from src.bug_reports import is_broken_bug_line, is_legacy_verbose_bug_line, sanitize_bug_lines
 from src.utils import CAPTURE_WAIT_TYPING_OK_SEC, stats_capture_wait_seconds
@@ -38,6 +41,15 @@ def write_json_sidecar(path_txt: str, payload: Dict[str, Any]) -> str:
     with open(path_json, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
     return path_json
+
+
+def _fragment_match_stats_cell(stats: Dict[str, Any]) -> str:
+    if not stats.get("fragment_matcher_used"):
+        return "выкл."
+    scored = int(stats.get("fragment_match_scored", 0) or 0)
+    filt = int(stats.get("fragment_match_filtered", 0) or 0)
+    thr = stats.get("fragment_match_threshold", "—")
+    return f"вкл., оценено {scored}, отфильтровано {filt}, порог P(same)≥{thr}"
 
 
 def _parse_structured_bug_blocks(markdown: str) -> List[Dict[str, str]]:
@@ -375,6 +387,8 @@ def _build_bug_report_table_html(
     baseline_path: str,
     current_shot: str,
     recommendations: List[str],
+    *,
+    diff_path: Optional[str] = None,
 ) -> str:
     """Таблица: ожидаемый (Figma) | фактический (сайт) | баги через запятую."""
     els = stats.get("layout_elements_for_crops")
@@ -397,6 +411,22 @@ def _build_bug_report_table_html(
 
     crop_dir = os.path.join(reports_dir, f"bug_table_{stamp}")
     os.makedirs(crop_dir, exist_ok=True)
+    ref_wh: Optional[tuple[int, int]] = None
+    layout = stats.get("layout_site") if isinstance(stats.get("layout_site"), dict) else {}
+    vp = layout.get("viewport") if isinstance(layout, dict) else None
+    if isinstance(vp, dict):
+        try:
+            ref_wh = (int(vp["w"]), int(vp["h"]))
+        except (KeyError, TypeError, ValueError):
+            ref_wh = None
+    if ref_wh is None:
+        cur_sz = image_size(current_shot)
+        if cur_sz:
+            ref_wh = cur_sz
+    base_sz = image_size(baseline_path) if baseline_path else None
+    cur_sz = image_size(current_shot) if current_shot else None
+    diff_sz = image_size(diff_path) if diff_path else None
+    hotspots = stats.get("diff_hotspots") if isinstance(stats.get("diff_hotspots"), dict) else {}
     parts: List[str] = []
     for i, bug_item in enumerate(rows_data[:60]):
         t = str(bug_item.get("text", "")).strip()
@@ -415,31 +445,81 @@ def _build_bug_report_table_html(
             except (KeyError, TypeError, ValueError):
                 bbox = None
 
+        bbox = refine_bug_table_bbox(bbox, bug_item, hotspots, ref_wh=ref_wh)
+
         exp_src = ""
         act_src = ""
+        diff_src = ""
         if bbox:
             exp_png = os.path.join(crop_dir, f"exp_{i}.png")
             act_png = os.path.join(crop_dir, f"act_{i}.png")
+            diff_png = os.path.join(crop_dir, f"diff_{i}.png")
+            bbox_page = bbox
+            bbox_base = bbox
+            bbox_cur = bbox
+            bbox_diff = bbox
+            if ref_wh:
+                if base_sz and base_sz != ref_wh:
+                    bbox_base = scale_bbox(bbox_page, ref_wh, base_sz)
+                if cur_sz and cur_sz != ref_wh:
+                    bbox_cur = scale_bbox(bbox_page, ref_wh, cur_sz)
+                if diff_sz and diff_sz != ref_wh:
+                    bbox_diff = scale_bbox(bbox_page, ref_wh, diff_sz)
             if baseline_path and os.path.isfile(baseline_path):
-                if save_plain_crop(baseline_path, bbox, exp_png):
+                if save_highlight_crop(
+                    baseline_path,
+                    bbox_base,
+                    exp_png,
+                    outline="#38bdf8",
+                    width=3,
+                ):
                     exp_src = exp_png
             if current_shot and os.path.isfile(current_shot):
-                if save_highlight_crop(current_shot, bbox, act_png):
+                if save_highlight_crop(current_shot, bbox_cur, act_png):
                     act_src = act_png
+            if diff_path and os.path.isfile(diff_path):
+                if save_plain_crop(diff_path, bbox_diff, diff_png):
+                    diff_src = diff_png
 
         label = html.escape(_bug_row_label(bug_item))
         bug_html = _format_rec_line_html(t)
+        p_same = bug_item.get("fragment_match_p_same")
+        if p_same is not None:
+            try:
+                ps = float(p_same)
+                extra = ""
+                st = bug_item.get("fragment_match_structure")
+                ct = bug_item.get("fragment_match_content")
+                if st is not None and ct is not None:
+                    extra = f" · S={float(st):.2f} C={float(ct):.2f}"
+                bug_html += (
+                    f'<br><small class="meta">P(совпадение): {ps:.2f}{extra}'
+                    f" <span title=\"Structure×0.7 + Content×0.3, стили не учитываются\">"
+                    f"(семантика)</span></small>"
+                )
+            except (TypeError, ValueError):
+                pass
         parts.append(
             "    <tr>"
             f'<td class="bug-num">{i + 1}</td>'
             f'<td class="bug-zone"><small>{label}</small></td>'
-            f'<td class="bug-img">{_crop_cell_html(reports_dir, exp_src, "Ожидаемый")}</td>'
-            f'<td class="bug-img">{_crop_cell_html(reports_dir, act_src, "Фактический")}</td>'
+            f'<td class="bug-img">{_crop_cell_html(reports_dir, exp_src, "Ожидаемый (макет)")}</td>'
+            f'<td class="bug-img">{_crop_cell_html(reports_dir, act_src, "Фактический (сайт)")}</td>'
+            f'<td class="bug-img">{_crop_cell_html(reports_dir, diff_src, "Карта отличий в этой зоне")}</td>'
             f'<td class="bug-desc">{bug_html}</td>'
             "</tr>\n"
         )
     if not parts:
-        return '    <tr><td colspan="5">Нет данных по diff</td></tr>\n'
+        try:
+            pct = float(stats.get("changed_ratio_pct", 100) or 100)
+        except (TypeError, ValueError):
+            pct = 100.0
+        if pct < 2.0:
+            return (
+                '    <tr><td colspan="6">Замечаний не найдено — страница совпадает с макетом '
+                "в пределах порога diff.</td></tr>\n"
+            )
+        return '    <tr><td colspan="6">Нет данных по diff</td></tr>\n'
     return "".join(parts)
 
 
@@ -503,6 +583,14 @@ def write_html_report(
                 f"<td>{html.escape(str(el.get('w', '')))}</td>"
                 f"<td>{html.escape(str(el.get('h', '')))}</td>"
                 "<td><small>"
+                + html.escape(str(el.get("fontSize", "")), quote=False)
+                + " · "
+                + html.escape(str(el.get("fontFamily", "")), quote=False)[:40]
+                + "</small></td>"
+                "<td><small>"
+                + html.escape(str(el.get("color", "")), quote=False)
+                + "</small></td>"
+                "<td><small>"
                 + html.escape(str(el.get("margin", "")), quote=False)
                 + "</small></td>"
                 "<td><small>"
@@ -511,11 +599,24 @@ def write_html_report(
             )
     if not recommendations:
         recommendations = fallback_recommendation_lines_from_stats(stats)
+    ollama_list_html = ""
+    if stats.get("ollama_bug_polish") and (gemma_markdown or "").strip():
+        ollama_list_html = (
+            '  <h2>Список правок (Ollama)</h2>\n'
+            f'  <pre class="md">{html.escape(gemma_markdown.strip())}</pre>\n'
+        )
     bug_table_rows = _build_bug_report_table_html(
-        reports_dir, stamp, stats, baseline_path, current_shot, recommendations
+        reports_dir,
+        stamp,
+        stats,
+        baseline_path,
+        current_shot,
+        recommendations,
+        diff_path=diff_path if diff_path and os.path.isfile(diff_path) else None,
     )
+    ollama_block = ollama_list_html
     model_block = ""
-    if not recommendations and (gemma_markdown or "").strip():
+    if not recommendations and (gemma_markdown or "").strip() and not ollama_list_html:
         model_block = (
             f'  <h2>Полный ответ модели (Markdown)</h2>\n'
             f'  <pre class="md">{html.escape(gemma_markdown or "—")}</pre>\n'
@@ -558,7 +659,7 @@ def write_html_report(
       background: #0f1419;
       color: #e7ecf1;
     }}
-    body {{ max-width: 1100px; margin: 0 auto; padding: 24px; line-height: 1.45; }}
+    body {{ max-width: 1400px; margin: 0 auto; padding: 24px; line-height: 1.45; }}
     h1 {{ font-size: 1.35rem; margin-top: 0; }}
     .pill {{ display: inline-block; padding: 4px 12px; border-radius: 999px; font-weight: 600; }}
     .pill.ok {{ background: #1e3d2f; color: #8fefb0; }}
@@ -573,10 +674,10 @@ def write_html_report(
     table.bug-report th {{ white-space: nowrap; font-size: 0.88rem; }}
     table.bug-report td.bug-num {{ width: 2.2rem; text-align: center; color: #9aa7b5; }}
     table.bug-report td.bug-zone {{ width: 7rem; color: #9aa7b5; }}
-    table.bug-report td.bug-img {{ width: 132px; padding: 6px; }}
+    table.bug-report td.bug-img {{ width: 220px; padding: 8px; }}
     table.bug-report td.bug-desc {{ min-width: 200px; line-height: 1.55; vertical-align: middle; }}
-    .bug-shot {{ margin: 0; width: 120px; height: 90px; display: flex; align-items: center; justify-content: center; background: #0d1117; border-radius: 8px; border: 1px solid #2a3440; overflow: hidden; }}
-    .bug-shot img {{ display: block; max-width: 120px; max-height: 90px; width: auto; height: auto; object-fit: contain; }}
+    .bug-shot {{ margin: 0; width: 200px; height: 150px; display: flex; align-items: center; justify-content: center; background: #0d1117; border-radius: 8px; border: 1px solid #2a3440; overflow: hidden; }}
+    .bug-shot img {{ display: block; max-width: 200px; max-height: 150px; width: auto; height: auto; object-fit: contain; }}
   </style>
 </head>
 <body>
@@ -595,26 +696,29 @@ def write_html_report(
     <tr><th>Raw / shift, %</th><td>{html.escape(str(stats.get("changed_ratio_raw_pct", "")))} / {html.escape(str(stats.get("changed_ratio_shift_pct", "")))}</td></tr>
     <tr><th>Порог, %</th><td>{html.escape(str(stats.get("threshold_pct", "")))}</td></tr>
     <tr><th>CNN P(fail)</th><td>{html.escape(str(stats.get("model_prob_fail", "—")))}</td></tr>
+    <tr><th>Fragment matcher</th><td>{html.escape(_fragment_match_stats_cell(stats))}</td></tr>
   </table>
 
+{ollama_block}
   <h2>Баг-репорт</h2>
-  <p class="meta">Компактные фрагменты по блокам (не полностраничные скрины). Несколько багов одного блока — через запятую в колонке «Баг».</p>
+  <p class="meta">Строки таблицы — список правок. Ожидаемый / фактический — та же зона (рамка), третья колонка — фрагмент карты diff в этой зоне.</p>
   <table class="bug-report">
     <thead>
-      <tr><th>#</th><th>Блок</th><th>Ожидаемый</th><th>Фактический</th><th>Баг</th></tr>
+      <tr><th>#</th><th>Блок</th><th>Ожидаемый</th><th>Фактический</th><th>Diff</th><th>Баг</th></tr>
     </thead>
     <tbody>
 {bug_table_rows}    </tbody>
   </table>
 
+{model_block}
   <h2>Отступы на странице (computed style)</h2>
   <p class="meta">Крупнейшие видимые блоки в окне просмотра; сверяйте с макетом и diff.</p>
   <table>
-    <tr><th>Блок</th><th>x</th><th>y</th><th>w</th><th>h</th><th>margin</th><th>padding</th></tr>
-    {rows_layout or "<tr><td colspan='7'>Нет данных</td></tr>"}
+    <tr><th>Блок</th><th>x</th><th>y</th><th>w</th><th>h</th><th>шрифт</th><th>цвет</th><th>margin</th><th>padding</th></tr>
+    {rows_layout or "<tr><td colspan='9'>Нет данных</td></tr>"}
   </table>
 
-{model_block}</body>
+</body>
 </html>
 """
     with open(path, "w", encoding="utf-8") as f:

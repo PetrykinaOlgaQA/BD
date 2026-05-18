@@ -114,17 +114,20 @@ function formatInlineBoldAfterEscape(e) {
 function renderGemmaMarkdown(md) {
   const raw = (md || "").trim();
   if (!raw) {
-    return '<p class="muted">Отчёт отключён или модель не ответила.</p>';
+    return (
+      '<p class="qa-panel__md-muted">Список правок пуст: отключите Ollama в UI, проверьте <code>ollama serve</code>, ' +
+      "или fragment matcher мог отфильтровать все пункты (перезапустите сверку после обновления).</p>"
+    );
   }
   if (raw.startsWith("[Gemma") || raw.startsWith("[Ollama")) {
-    return '<pre class="md-error">' + escapeHtml(raw) + "</pre>";
+    return '<pre class="qa-panel__md-error">' + escapeHtml(raw) + "</pre>";
   }
   const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
   const bullet = /^[-*]\s+/;
   if (lines.length >= 1 && lines.every((l) => bullet.test(l))) {
     const items = lines.map((l) => l.replace(bullet, ""));
     return (
-      '<ul class="fix-list">' +
+      '<ul class="qa-panel__fix-list">' +
       items.map((i) => "<li>" + formatInlineBoldAfterEscape(escapeHtml(i)) + "</li>").join("") +
       "</ul>"
     );
@@ -201,7 +204,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     gemmaMd.innerHTML = "";
 
     btn.disabled = true;
-    badge.className = "status run";
+    btn.setAttribute("aria-busy", "true");
+    badge.className = "qa-panel__status qa-panel__status--run";
     badge.textContent = "идёт…";
 
     const t0 = Date.now();
@@ -233,6 +237,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       figma_refresh: document.getElementById("figmaRefresh").checked,
       use_gemma: document.getElementById("useGemma").checked,
       use_model: document.getElementById("useModel").checked,
+      use_fragment_matcher: document.getElementById("useFragmentMatcher").checked,
       gemma_use_image: document.getElementById("gemmaImg").checked,
     };
 
@@ -255,14 +260,14 @@ document.addEventListener("DOMContentLoaded", async () => {
       } catch (parseErr) {
         appendLog(String(parseErr));
         fetchHintLines().forEach((line) => appendLog(line));
-        badge.className = "status fail";
+        badge.className = "qa-panel__status qa-panel__status--fail";
         badge.textContent = "ошибка";
         return;
       }
       if (!r.ok) {
         appendLog(data.error || "ошибка");
         (data.logs || []).forEach((l) => appendLog(l));
-        badge.className = "status fail";
+        badge.className = "qa-panel__status qa-panel__status--fail";
         badge.textContent = "ошибка";
         return;
       }
@@ -280,7 +285,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         appendLog("CNN P(fail): " + data.model_prob_fail);
       }
 
-      badge.className = "status " + (data.ok ? "pass" : "fail");
+      badge.className = "qa-panel__status " + (data.ok ? "qa-panel__status--pass" : "qa-panel__status--fail");
       badge.textContent = data.ok ? "PASS" : "FAIL";
 
       const md = data.gemma_markdown || "";
@@ -291,11 +296,12 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (msg === "Failed to fetch" || (e instanceof TypeError && String(msg).toLowerCase().includes("fetch"))) {
         fetchHintLines().forEach((line) => appendLog(line));
       }
-      badge.className = "status fail";
+      badge.className = "qa-panel__status qa-panel__status--fail";
       badge.textContent = "сеть";
     } finally {
       if (tick) clearInterval(tick);
       btn.disabled = false;
+      btn.setAttribute("aria-busy", "false");
     }
   });
 });

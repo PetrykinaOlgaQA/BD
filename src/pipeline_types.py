@@ -35,7 +35,12 @@ class RunConfig:
     ollama_vision_fallback: bool = False
     ollama_try_generate_fallback: bool = False
     ollama_fallback_on_empty: bool = True
-    refine_bug_text: bool = False
+    refine_bug_text: bool = True
+    ollama_polish_bugs: bool = True
+    ollama_bug_report_mode: str = "text"
+    fragment_matcher_path: Optional[str] = None
+    use_fragment_matcher: bool = False
+    fragment_match_threshold: float = 0.55
 
 
 @dataclass
@@ -82,4 +87,9 @@ class FigmaVsSiteConfig:
     ollama_vision_fallback: bool = False
     ollama_try_generate_fallback: bool = False
     ollama_fallback_on_empty: bool = True
-    refine_bug_text: bool = False
+    refine_bug_text: bool = True
+    ollama_polish_bugs: bool = True
+    ollama_bug_report_mode: str = "text"
+    fragment_matcher_path: Optional[str] = None
+    use_fragment_matcher: bool = False
+    fragment_match_threshold: float = 0.55

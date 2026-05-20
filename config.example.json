@@ -12,6 +12,12 @@
   "fragment_matcher_path": "weights/fragment_matcher.pt",
   "use_fragment_matcher": true,
   "fragment_match_threshold": 0.55,
+  "comparator": {
+    "enabled": true,
+    "weights": "weights/multi_aspect_comparator_best.pt",
+    "pass_threshold": 0.68,
+    "max_regions": 10
+  },
   "figma": {
     "file_key": "KqJfoHyA6re2zYzDmriMT2",
     "node_id": "19:2",

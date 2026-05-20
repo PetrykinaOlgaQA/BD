@@ -181,8 +181,27 @@ def _edge_delta_px(mask: np.ndarray, x0: int, y0: int, w: int, h: int, edge: str
     return int(len(cols)) if len(cols) else thick
 
 
+def _is_icon_like_snippet(snippet: str, el: Optional[Dict[str, Any]] = None) -> bool:
+    low = (snippet or "").lower()
+    if any(k in low for k in ("fact-emoji", "emoji", "logo", "social-link", "social-links")):
+        return True
+    if isinstance(el, dict):
+        inner = str(el.get("innerText", "") or "").strip()
+        if len(inner) <= 2 and not re.search(r"\d{2,}", inner):
+            return True
+        try:
+            w, h = int(el.get("w", 0)), int(el.get("h", 0))
+            if w <= 72 and h <= 72 and len(inner) <= 4:
+                return True
+        except (TypeError, ValueError):
+            pass
+    return False
+
+
 def _human_zone(snippet: str) -> str:
     low = (snippet or "").lower()
+    if "fact-emoji" in low or "emoji" in low:
+        return "у иконки"
     if "header" in low or "шапк" in low:
         return "в шапке"
     if "footer" in low or "подвал" in low:
@@ -229,6 +248,8 @@ def _element_kind_label(snippet: str) -> str:
         return "подвал"
     if "nav" in low or "menu" in low:
         return "меню"
+    if "fact-emoji" in low or "emoji" in low:
+        return "иконка"
     if tag in ("p", "span"):
         return "текст"
     if tag == "img" or "image" in low:
@@ -341,9 +362,14 @@ def _phrases_for_element(
         x, y, w, h = int(el["x"]), int(el["y"]), int(el["w"]), int(el["h"])
     except (KeyError, TypeError, ValueError):
         return []
+    sn = str(el.get("snippet", "")).strip()
+    if _is_icon_like_snippet(sn, el):
+        if float(changed_in_box_pct) >= 4.0:
+            return [_phrase_with_element("иконка/эмодзи отличается от макета", sn)]
+        return []
     fr = _band_fracs(mask, x, y, w, h)
-    sn = str(el.get("snippet", "")).lower()
-    tag = sn.split(".")[0].split("#")[0]
+    sn_low = sn.lower()
+    tag = sn_low.split(".")[0].split("#")[0]
     out: List[str] = []
 
     hot_edges: List[Tuple[str, float]] = []
@@ -557,6 +583,41 @@ def _collect_phrases_with_elements(
                 )
             except Exception:
                 typo_items = []
+        if has_rgb and scored and len(typo_items) < 14:
+            try:
+                from src.typography_compare import build_typography_bug_items
+
+                extra_typo = build_typography_bug_items(
+                    scored, baseline_rgb, current_rgb, img_h=img_h, max_items=10
+                )
+            except Exception:
+                extra_typo = []
+            seen_keys = {
+                re.sub(r"\s+", " ", str(p[0]).lower().strip())[:90] for p in pairs
+            }
+            for row in extra_typo:
+                phrase = str(row.get("text", "")).strip()
+                if not phrase:
+                    continue
+                low = phrase.lower()
+                if not any(
+                    k in low
+                    for k in (
+                        "текст не совпадает",
+                        "текст отличается",
+                        "цифра:",
+                        "текстовка:",
+                        "макет «",
+                        "→",
+                    )
+                ):
+                    continue
+                key = re.sub(r"\s+", " ", low)[:90]
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                el = {k: row[k] for k in ("x", "y", "w", "h", "snippet") if k in row}
+                typo_items.append(row)
 
     global_diff_pct = float(mask.mean()) * 100.0 if mask is not None and mask.size else 100.0
 
@@ -565,12 +626,35 @@ def _collect_phrases_with_elements(
         for row in typo_items:
             el = {k: row[k] for k in ("x", "y", "w", "h", "snippet") if k in row}
             pairs.append((str(row["text"]), el if el else None))
+    covered_icon_keys: set[str] = set()
+    for _p, _el in pairs:
+        if _el and _is_icon_like_snippet(str(_el.get("snippet", "")), _el):
+            try:
+                covered_icon_keys.add(
+                    f"{int(_el['x'])}:{int(_el['y'])}:{int(_el['w'])}:{int(_el['h'])}"
+                )
+            except (KeyError, TypeError, ValueError):
+                pass
+
     if len(pairs) < pair_cap:
         for _frac, sn, el, ch in scored:
             if ch < 4.0:
                 continue
             if len(pairs) >= pair_cap:
                 break
+            if _is_icon_like_snippet(sn, el):
+                try:
+                    ik = f"{int(el['x'])}:{int(el['y'])}:{int(el['w'])}:{int(el['h'])}"
+                except (KeyError, TypeError, ValueError):
+                    ik = ""
+                if ik and ik in covered_icon_keys:
+                    continue
+                one_icon = _compact_phrase_for_element(mask, el, ch, snippet=sn)
+                if one_icon:
+                    pairs.append((one_icon, el))
+                    if ik:
+                        covered_icon_keys.add(ik)
+                continue
             if has_rgb:
                 for p in _presence_phrases_for_element(
                     baseline_rgb,
@@ -699,7 +783,14 @@ def build_bug_report_items(
             stats_sink["structural_shift_filtered"] = int(
                 stats_sink.get("structural_shift_filtered", 0)
             ) + n_shift
-    return group_bug_items_by_region(items)
+    items = group_bug_items_by_region(items)
+    try:
+        from src.bug_consolidate import finalize_bug_report_items
+
+        items = finalize_bug_report_items(items, layout_elements=layout_elements)
+    except Exception:
+        pass
+    return items
 
 
 def _region_group_key(it: Dict[str, Any]) -> str:
@@ -823,6 +914,55 @@ def bug_items_from_polished_lines(
     return out
 
 
+def has_structured_section_bugs(items: List[Dict[str, Any]]) -> bool:
+    """Пункты section_compare / stats / logo — не заменять таблицу целиком через Ollama."""
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        t = str(it.get("text", "")).strip()
+        if not t.startswith("["):
+            continue
+        if any(
+            k in t
+            for k in (
+                "Блок статистики",
+                "Карточка",
+                "Шапка",
+                "текстовка:",
+                "логотип",
+            )
+        ):
+            return True
+    return False
+
+
+def merge_polished_text_into_items(
+    items: List[Dict[str, Any]],
+    polished_lines: List[str],
+) -> List[Dict[str, Any]]:
+    """Подмена текста по порядку (y,x); bbox и snippet сохраняются."""
+    base = [dict(x) for x in items if isinstance(x, dict)]
+    lines = [str(x).strip().lstrip("-• ").strip() for x in polished_lines if str(x).strip()]
+    if not base or not lines:
+        return base
+    if len(lines) != len(base):
+        return base
+
+    def _sort_key(it: Dict[str, Any]) -> tuple[int, int]:
+        try:
+            return (int(it.get("y", 0)), int(it.get("x", 0)))
+        except (TypeError, ValueError):
+            return (0, 0)
+
+    sorted_items = sorted(base, key=_sort_key)
+    out: List[Dict[str, Any]] = []
+    for i, row in enumerate(sorted_items):
+        row = dict(row)
+        row["text"] = lines[i]
+        out.append(row)
+    return out
+
+
 def sync_bug_items_with_polished_lines(
     items: List[Dict[str, Any]],
     polished_lines: List[str],
@@ -885,6 +1025,13 @@ def sanitize_bug_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         text = str(it.get("text", "")).strip()
         if not text or is_broken_bug_line(text) or is_legacy_verbose_bug_line(text):
             continue
+        sn = str(it.get("snippet", "")).strip()
+        if _is_icon_like_snippet(sn, it):
+            low = text.lower()
+            if any(w in low for w in ("отступ", "шрифт", "размер шрифта", "padding", "margin")):
+                text = _phrase_with_element("иконка/эмодзи отличается от макета", sn)
+                it = dict(it)
+                it["text"] = text
         k = _pair_dedupe_key(text, it)
         if not k or k in seen:
             continue

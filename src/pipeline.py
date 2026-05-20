@@ -9,9 +9,11 @@ from src.capture import capture_screenshot
 from src.compare import CompareResult, compare_screenshots
 from src.bug_reports import (
     build_bug_report_items,
-    draft_lines_to_text,
-    sanitize_bug_lines,
     bug_items_from_polished_lines,
+    draft_lines_to_text,
+    has_structured_section_bugs,
+    merge_polished_text_into_items,
+    sanitize_bug_lines,
 )
 from src.diff_hotspots import analyze_diff_for_qa
 from src.figma_client import FigmaRateLimitError, export_frame_png, public_design_url
@@ -116,6 +118,14 @@ def run_pipeline(cfg: RunConfig, log: Optional[Callable[[str], None]] = None) ->
     stats["bug_report_items_pre_fragment"] = bug_items_pre_fragment
     stats.setdefault("structural_shift_filtered", 0)
     frag_meta: Dict[str, Any] = {"fragment_matcher_used": False}
+    try:
+        from src.bug_consolidate import finalize_bug_report_items
+
+        bug_items = finalize_bug_report_items(
+            bug_items, layout_elements=els_for_hotspots
+        )
+    except Exception:
+        pass
     if cfg.use_fragment_matcher and bug_items:
         try:
             from src.fragment_match.filter_bugs import apply_fragment_matcher_to_bug_items
@@ -165,11 +175,42 @@ def run_pipeline(cfg: RunConfig, log: Optional[Callable[[str], None]] = None) ->
                 "оставлен исходный список diff (для Ollama и таблицы)."
             )
     stats.update(frag_meta)
+    if cfg.use_comparator:
+        try:
+            from src.comparator.pipeline_integration import augment_bug_items_with_comparator
+
+            project_root = os.path.dirname(os.path.abspath(cfg.reports_dir))
+            crops_dir = os.path.join(cfg.screenshot_dir, "comparator_crops", str(ts))
+            bug_items = augment_bug_items_with_comparator(
+                bug_items,
+                baseline_path=cfg.baseline_path,
+                current_path=cur,
+                hotspots=hotspots,
+                layout_elements=els_for_hotspots,
+                project_root=project_root,
+                weights_path=str(cfg.comparator_weights_path),
+                pass_threshold=float(cfg.comparator_pass_threshold),
+                max_regions=int(cfg.comparator_max_regions),
+                crops_dir=crops_dir,
+                stats_sink=stats,
+                log=log,
+            )
+        except Exception as e:
+            stats["comparator_error"] = str(e)
+            if log:
+                log(f"Comparator: пропуск ({e})")
+    try:
+        from src.bug_consolidate import finalize_bug_report_items
+
+        bug_items = finalize_bug_report_items(
+            bug_items, layout_elements=els_for_hotspots
+        )
+    except Exception:
+        pass
     stats["bug_report_items"] = bug_items
-    draft_source = bug_items_pre_fragment if bug_items_pre_fragment else bug_items
     stats["diff_hotspots_tasks"] = [
         str(it.get("text", "")).strip()
-        for it in draft_source
+        for it in bug_items
         if isinstance(it, dict) and str(it.get("text", "")).strip()
     ]
     stats["layout_elements_for_crops"] = (
@@ -184,17 +225,7 @@ def run_pipeline(cfg: RunConfig, log: Optional[Callable[[str], None]] = None) ->
     gemma_text = draft_lines_to_text(draft_lines) if draft_lines else ""
     polish = bool(getattr(cfg, "ollama_polish_bugs", getattr(cfg, "refine_bug_text", True)))
     bug_mode = str(getattr(cfg, "ollama_bug_report_mode", "text") or "text").lower()
-    # Не переписывать детерминированный отчёт (текст/шрифты) через LLM — только раздувает и портит формулировки.
-    if bug_items and any(
-        "[" in str(it.get("text", ""))
-        or "текст раздела" in str(it.get("text", "")).lower()
-        or "текст не совпадает" in str(it.get("text", "")).lower()
-        or "шрифт на сайте" in str(it.get("text", "")).lower()
-        for it in bug_items
-        if isinstance(it, dict)
-    ):
-        polish = False
-        stats["ollama_bug_polish_skipped"] = "typography_report"
+    structured_bugs = has_structured_section_bugs(bug_items)
     if cfg.use_gemma and polish:
         if cfg.baseline_is_figma:
             gctx = f"эталон — кадр макета из Figma (PNG {os.path.basename(cfg.baseline_path)}); под тестом страница: {cfg.url}"
@@ -209,7 +240,7 @@ def run_pipeline(cfg: RunConfig, log: Optional[Callable[[str], None]] = None) ->
             if log:
                 log(
                     f"Ollama ({cfg.gemma_model}): разбор diff по картинке "
-                    f"(read≤{int(cfg.ollama_timeout_read)} с)…"
+                    f"(read<={int(cfg.ollama_timeout_read)} s)..."
                 )
             vision_txt = explain_diff_ru(
                 cfg.ollama_url,
@@ -236,7 +267,7 @@ def run_pipeline(cfg: RunConfig, log: Optional[Callable[[str], None]] = None) ->
             if log:
                 log(
                     f"Ollama ({cfg.gemma_model}): полировка баг-репорта "
-                    f"(read≤{int(cfg.ollama_timeout_read)} с)…"
+                    f"(read<={int(cfg.ollama_timeout_read)} s)..."
                 )
             refine_draft = [
                 (s if str(s).strip().startswith("-") else "- " + str(s).strip())
@@ -257,13 +288,35 @@ def run_pipeline(cfg: RunConfig, log: Optional[Callable[[str], None]] = None) ->
         min_ok = max(1, len(draft_lines) // 3) if draft_lines else 1
         if refined_lines and len(refined_lines) >= min_ok:
             gemma_text = draft_lines_to_text(["- " + s for s in refined_lines])
-            bug_items = bug_items_from_polished_lines(
-                refined_lines,
-                els_for_hotspots,
-                bug_items_pre_fragment or bug_items,
-                baseline_path=cfg.baseline_path,
-                current_path=cur,
-            )
+            preserved = list(bug_items)
+            if structured_bugs:
+                merged = merge_polished_text_into_items(preserved, refined_lines)
+                if merged:
+                    bug_items = merged
+                    stats["ollama_bug_polish_mode"] = "structured_preserve"
+                else:
+                    stats["ollama_bug_polish_mode"] = "structured_keep_draft"
+                    stats["ollama_bug_polish_skipped_replace"] = True
+            else:
+                bug_items = bug_items_from_polished_lines(
+                    refined_lines,
+                    els_for_hotspots,
+                    bug_items_pre_fragment or bug_items,
+                    baseline_path=cfg.baseline_path,
+                    current_path=cur,
+                )
+                stats["ollama_bug_polish_mode"] = "full_replace"
+            if not bug_items and preserved:
+                bug_items = preserved
+                stats["ollama_bug_polish_fallback"] = "kept_heuristic_items"
+            try:
+                from src.bug_consolidate import finalize_bug_report_items
+
+                bug_items = finalize_bug_report_items(
+                    bug_items, layout_elements=els_for_hotspots
+                )
+            except Exception:
+                pass
             from src.structural_shift import filter_items_with_paths
 
             n_before = len(bug_items)
@@ -276,8 +329,15 @@ def run_pipeline(cfg: RunConfig, log: Optional[Callable[[str], None]] = None) ->
             stats["structural_shift_filtered"] = int(stats.get("structural_shift_filtered", 0)) + max(
                 0, n_before - len(bug_items)
             )
+            if not bug_items and preserved:
+                bug_items = preserved
             stats["bug_report_items"] = bug_items
-            stats["diff_hotspots_tasks"] = [str(it.get("text", "")).strip() for it in bug_items if str(it.get("text", "")).strip()]
+            stats["diff_hotspots_tasks"] = [
+                str(it.get("text", "")).strip() for it in bug_items if str(it.get("text", "")).strip()
+            ]
+            gemma_text = draft_lines_to_text(
+                ["- " + str(it.get("text", "")).strip() for it in bug_items if str(it.get("text", "")).strip()]
+            )
             stats["ollama_bug_polish"] = True
             stats["ollama_bug_lines"] = list(refined_lines)
     lines = [
@@ -456,6 +516,12 @@ def run_figma_vs_site(
         fragment_matcher_path=getattr(cfg, "fragment_matcher_path", None),
         use_fragment_matcher=bool(getattr(cfg, "use_fragment_matcher", False)),
         fragment_match_threshold=float(getattr(cfg, "fragment_match_threshold", 0.55)),
+        use_comparator=bool(getattr(cfg, "use_comparator", True)),
+        comparator_weights_path=str(
+            getattr(cfg, "comparator_weights_path", "weights/multi_aspect_comparator_best.pt")
+        ),
+        comparator_pass_threshold=float(getattr(cfg, "comparator_pass_threshold", 0.68)),
+        comparator_max_regions=int(getattr(cfg, "comparator_max_regions", 10)),
     )
     out = run_pipeline(rc, log=log)
     if log:

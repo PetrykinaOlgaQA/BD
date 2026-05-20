@@ -192,7 +192,12 @@ def analyze_element_phrase(
             f"текст не совпадает ({zone}): в макете «{_short(text_mock, 42)}», "
             f"на сайте «{_short(text_site, 42)}»"
         )
-    is_emoji = "emoji" in sn.lower() or "logo" in sn.lower() or len(site_text) <= 3
+    is_emoji = (
+        "emoji" in sn.lower()
+        or "fact-emoji" in sn.lower()
+        or "logo" in sn.lower()
+        or len(site_text) <= 3
+    )
 
     if (_TEXT_TAG.match(tag) or (site_text and len(site_text) >= 4)) and not is_emoji:
         br, cr = _mean_rgb(base_crop), _mean_rgb(cur_crop)

@@ -21,6 +21,7 @@ def main():
     ap.add_argument("--url", default=None, help="URL страницы под тестом (иначе url_site из config)")
     ap.add_argument("--no-gemma", action="store_true")
     ap.add_argument("--no-model", action="store_true")
+    ap.add_argument("--no-comparator", action="store_true", help="без MultiAspectComparator")
     ap.add_argument("--no-gemma-image", action="store_true")
     ap.add_argument("--figma-scale", type=int, default=None, help="масштаб PNG из Figma (1–4)")
     ap.add_argument(
@@ -63,6 +64,7 @@ def main():
         use_gemma=not args.no_gemma,
         use_model=not args.no_model,
         gemma_use_image=not args.no_gemma_image,
+        use_comparator=not args.no_comparator,
     )
 
     out = run_figma_vs_site(fcfg, log=print)

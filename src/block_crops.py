@@ -131,6 +131,82 @@ def find_element_for_bug_item(
     bug_item: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Элемент для кропа: bbox из item, snippet, зона в тексте или подстрока в layout."""
+    low_line = (line or "").lower()
+    if isinstance(bug_item, dict) and (
+        "логотип" in low_line or "котик" in low_line or "logo" in str(bug_item.get("snippet", "")).lower()
+    ):
+        try:
+            x, y, w, h = int(bug_item["x"]), int(bug_item["y"]), int(bug_item["w"]), int(bug_item["h"])
+        except (KeyError, TypeError, ValueError):
+            x = y = w = h = 0
+        if w > 0 and h > 0:
+            pad = 10
+            if w > 220:
+                for el in elements or []:
+                    if not isinstance(el, dict) or "logo" not in str(el.get("snippet", "")).lower():
+                        continue
+                    try:
+                        from src.section_compare import _logo_emoji_table_bbox
+
+                        ex, ey, ew, eh = int(el["x"]), int(el["y"]), int(el["w"]), int(el["h"])
+                        lx, ly, lw, lh = _logo_emoji_table_bbox(el, ex, ey, ew, eh)
+                        return {
+                            "x": lx,
+                            "y": ly,
+                            "w": lw,
+                            "h": lh,
+                            "snippet": str(el.get("snippet", "motion.logo")),
+                        }
+                    except Exception:
+                        break
+            return {
+                "x": max(0, x - pad),
+                "y": max(0, y - pad),
+                "w": w + pad * 2,
+                "h": h + pad * 2,
+                "snippet": str(bug_item.get("snippet", "motion.logo")),
+            }
+    if isinstance(bug_item, dict) and ("эмодзи" in low_line or "иконка" in low_line):
+        sn_item = str(bug_item.get("snippet", "")).lower()
+        if "fact-emoji" in sn_item or "emoji" in sn_item:
+            try:
+                x, y, w, h = (
+                    int(bug_item["x"]),
+                    int(bug_item["y"]),
+                    int(bug_item["w"]),
+                    int(bug_item["h"]),
+                )
+                if w > 0 and h > 0:
+                    pad = 6
+                    return {
+                        "x": max(0, x - pad),
+                        "y": max(0, y - pad),
+                        "w": w + pad * 2,
+                        "h": h + pad * 2,
+                        "snippet": str(bug_item.get("snippet", "span.fact-emoji")),
+                    }
+            except (KeyError, TypeError, ValueError):
+                pass
+        m = re.search(r"карточка\s*(\d+)", low_line, re.I)
+        if m and isinstance(elements, list):
+            try:
+                from src.bug_consolidate import find_fact_emoji_element
+
+                el_em = find_fact_emoji_element(int(m.group(1)), elements)
+                if el_em:
+                    bb = _bbox_tuple(el_em)
+                    if bb:
+                        x, y, w, h = bb
+                        pad = 8
+                        return {
+                            "x": max(0, x - pad),
+                            "y": max(0, y - pad),
+                            "w": w + pad * 2,
+                            "h": h + pad * 2,
+                            "snippet": str(el_em.get("snippet", "span.fact-emoji")),
+                        }
+            except Exception:
+                pass
     if isinstance(bug_item, dict):
         try:
             x, y, w, h = int(bug_item["x"]), int(bug_item["y"]), int(bug_item["w"]), int(bug_item["h"])
@@ -146,12 +222,28 @@ def find_element_for_bug_item(
             pass
         sn = str(bug_item.get("snippet", "")).strip()
         if sn and isinstance(elements, list):
-            for el in elements:
-                if isinstance(el, dict) and str(el.get("snippet", "")).strip() == sn:
-                    return el
+            try:
+                bx, by = int(bug_item.get("x", 0)), int(bug_item.get("y", 0))
+            except (TypeError, ValueError):
+                bx, by = 0, 0
+            matches = [
+                el
+                for el in elements
+                if isinstance(el, dict) and str(el.get("snippet", "")).strip() == sn
+            ]
+            if len(matches) == 1:
+                return matches[0]
+            for el in matches:
+                try:
+                    if abs(int(el["x"]) - bx) <= 8 and abs(int(el["y"]) - by) <= 8:
+                        return el
+                except (KeyError, TypeError, ValueError):
+                    continue
+            if matches:
+                return matches[0]
     if not line or not isinstance(elements, list):
         return None
-    low = line.lower()
+    low = low_line
     cands = [e for e in elements if isinstance(e, dict) and _bbox_tuple(e)]
     for q in _extract_quoted(line):
         ql = q.lower()

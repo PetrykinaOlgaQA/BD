@@ -363,6 +363,14 @@ def _crop_cell_html(reports_dir: str, src: str, alt: str) -> str:
 def _bug_row_label(bug_item: Dict[str, Any]) -> str:
     from src.bug_reports import _element_kind_label
 
+    text = str(bug_item.get("text", ""))
+    card_m = re.search(r"\[Карточка\s+(\d+)", text, re.I)
+    if card_m:
+        return f"карточка {card_m.group(1)}"
+    if re.search(r"статистик|(?:цифра|текстовка):\s*макет", text, re.I):
+        return "статистика"
+    if "логотип" in text.lower() or "котик" in text.lower():
+        return "шапка"
     sn = str(bug_item.get("snippet", "")).strip()
     if sn.startswith("zone:"):
         return sn.replace("zone:", "").strip() or "зона"
@@ -401,11 +409,28 @@ def _build_bug_report_table_html(
     if not rows_data and recommendations:
         rows_data = [{"text": t} for t in recommendations if str(t).strip()]
 
-    def _sort_key(it: Dict[str, Any]) -> tuple[int, int]:
+    def _sort_key(it: Dict[str, Any]) -> tuple[int, int, int]:
+        text = str(it.get("text", "")).lower()
         try:
-            return (int(it.get("y", 0)), int(it.get("x", 0)))
+            y, x = int(it.get("y", 0)), int(it.get("x", 0))
         except (TypeError, ValueError):
-            return (0, 0)
+            y, x = 0, 0
+        if "блок статистики" in text or (
+            ("цифра:" in text or "текстовка:" in text) and "макет" in text
+        ):
+            prio = 0
+        elif "логотип" in text or "котик" in text:
+            prio = 1
+        elif "карточка" in text and ("эмодзи не совпадает" in text or "эмодзи" in text):
+            prio = 1
+        elif "иконка" in text or "эмодзи" in text:
+            prio = 2
+        elif text.startswith("[nn]"):
+            sn = str(it.get("snippet", "")).lower()
+            prio = 8 if sn in ("div.container",) or "facts-grid" in sn else 6
+        else:
+            prio = 4
+        return (prio, y, x)
 
     rows_data.sort(key=_sort_key)
 
@@ -726,3 +751,21 @@ def write_html_report(
     with open(last_path, "w", encoding="utf-8") as f:
         f.write(page)
     return path
+
+
+def comparator_bugs_for_element_crops(
+    figma_crop: str,
+    site_crop: str,
+    *,
+    threshold: float = 0.68,
+) -> List[Dict[str, Any]]:
+    """
+    Опционально: баги от MultiAspectComparator для пары кропов блока.
+    Использование в pipeline: bugs.extend(comparator_bugs_for_element_crops(f, s))
+    """
+    try:
+        from src.comparator.pipeline_bridge import comparator_bugs_for_crops
+
+        return comparator_bugs_for_crops(figma_crop, site_crop, threshold=threshold)
+    except Exception:
+        return []

@@ -70,6 +70,14 @@ class CompareBlock:
 
 
 @dataclass
+class ComparatorBlock:
+    enabled: bool = True
+    weights: str = "weights/multi_aspect_comparator_best.pt"
+    pass_threshold: float = 0.68
+    max_regions: int = 10
+
+
+@dataclass
 class OllamaVisionBlock:
     base_url: str = "http://127.0.0.1:11434"
     model: str = "gemma3:latest"
@@ -104,6 +112,7 @@ class AppConfig:
     fragment_match_threshold: float = 0.55
     compare: CompareBlock = field(default_factory=CompareBlock)
     ollama: OllamaVisionBlock = field(default_factory=OllamaVisionBlock)
+    comparator: ComparatorBlock = field(default_factory=ComparatorBlock)
     raw: Dict[str, Any] = field(default_factory=dict)
 
     def resolved_design_png(self, project_root: str) -> str:
@@ -153,6 +162,15 @@ def parse_app_config(raw: Dict[str, Any], project_root: str) -> AppConfig:
         blur_ksize=_clamp_int(cmp.get("blur_ksize", 3), 1, 31, 3) | 1,  # нечётное
     )
 
+    cmp_nn = raw.get("comparator") or {}
+    cnb = ComparatorBlock(
+        enabled=bool(cmp_nn.get("enabled", True)),
+        weights=str(cmp_nn.get("weights", "weights/multi_aspect_comparator_best.pt")).strip()
+        or "weights/multi_aspect_comparator_best.pt",
+        pass_threshold=_clamp_float(cmp_nn.get("pass_threshold", 0.68), 0.0, 1.0, 0.68),
+        max_regions=_clamp_int(cmp_nn.get("max_regions", 10), 1, 32, 10),
+    )
+
     ob = OllamaVisionBlock(
         base_url=ollama_url,
         model=ollama_model,
@@ -191,6 +209,7 @@ def parse_app_config(raw: Dict[str, Any], project_root: str) -> AppConfig:
         fragment_match_threshold=_clamp_float(raw.get("fragment_match_threshold", 0.55), 0.0, 1.0, 0.55),
         compare=cb,
         ollama=ob,
+        comparator=cnb,
         raw=dict(raw),
     )
     return cfg
@@ -224,6 +243,7 @@ def app_config_to_figma_vs_site(
     use_model: bool = True,
     gemma_use_image: bool = True,
     use_fragment_matcher: Optional[bool] = None,
+    use_comparator: Optional[bool] = None,
 ) -> FigmaVsSiteConfig:
     """Собирает существующий dataclass пайплайна из AppConfig."""
     out_png = cfg.resolved_design_png(project_root)
@@ -267,4 +287,10 @@ def app_config_to_figma_vs_site(
             else bool(use_fragment_matcher)
         ),
         fragment_match_threshold=float(cfg.fragment_match_threshold),
+        use_comparator=(
+            bool(cfg.comparator.enabled) if use_comparator is None else bool(use_comparator)
+        ),
+        comparator_weights_path=abs_if_rel(project_root, cfg.comparator.weights),
+        comparator_pass_threshold=float(cfg.comparator.pass_threshold),
+        comparator_max_regions=int(cfg.comparator.max_regions),
     )

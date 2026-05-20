@@ -26,7 +26,18 @@ def _bbox_from_item(it: Dict[str, Any]) -> Optional[Tuple[int, int, int, int]]:
 
 
 def _skip_fragment_filter(text: str) -> bool:
-    return is_presence_bug(text)
+    if is_presence_bug(text):
+        return True
+    low = (text or "").lower()
+    if ("цифра:" in low or "текстовка:" in low) and "макет" in low:
+        return True
+    if "эмодзи не совпадает" in low or "эмодзи/иконка:" in low:
+        return True
+    if "логотип" in low and "котик" in low:
+        return True
+    if "карточка" in low and "эмодзи" in low:
+        return True
+    return False
 
 
 def _load_rgb_pair(baseline_path: str, current_path: str):
@@ -56,8 +67,14 @@ def _should_filter_bug(
         return False
     if is_presence_bug(text) or is_style_only_bug(text):
         return False
-    if "визуально отличается от макета" in low or "эмодзи/иконка отличается" in low:
+    if ("цифра:" in low or "текстовка:" in low) and "макет" in low:
         return False
+    if "визуально отличается от макета" in low:
+        return p_same >= max(threshold, 0.68)
+    if "эмодзи" in low or "иконка отличается" in low:
+        if "не совпадает" in low or "→" in low:
+            return False
+        return p_same >= max(threshold, 0.62)
     if "текст:" in low and "≠" in low:
         return False
     if "вёрстка не как в макете" in low or "блок не как в макете" in low:

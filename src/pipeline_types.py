@@ -41,6 +41,10 @@ class RunConfig:
     fragment_matcher_path: Optional[str] = None
     use_fragment_matcher: bool = False
     fragment_match_threshold: float = 0.55
+    use_comparator: bool = True
+    comparator_weights_path: str = "weights/multi_aspect_comparator_best.pt"
+    comparator_pass_threshold: float = 0.68
+    comparator_max_regions: int = 10
 
 
 @dataclass
@@ -93,3 +97,7 @@ class FigmaVsSiteConfig:
     fragment_matcher_path: Optional[str] = None
     use_fragment_matcher: bool = False
     fragment_match_threshold: float = 0.55
+    use_comparator: bool = True
+    comparator_weights_path: str = "weights/multi_aspect_comparator_best.pt"
+    comparator_pass_threshold: float = 0.68
+    comparator_max_regions: int = 10

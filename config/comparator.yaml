@@ -1,0 +1,56 @@
+# config/comparator.yaml
+model:
+  name: "MultiAspectComparator"
+  input_size: 224
+  num_channels: 4
+  backbone: "mobilenet_v3_small"
+  pretrained: true
+  freeze_backbone: true
+  dropout: 0.25
+
+training:
+  batch_size: 32
+  epochs: 8
+  use_rico_dataset: true          # RicoDataset вместо ComparatorDataset
+  synthetic_merge_ratio: 0.35
+  learning_rate: 0.001
+  weight_decay: 1e-4
+  overall_weight: 2.0
+  text_weight: 3.0             # акцент на text_match / text_small_change
+  patience: 5
+  resume_from: "weights/multi_aspect_comparator_best.pt"
+  val_frequency: 1
+
+paths:
+  data_dir: "data/comparator"
+  # После generate_rico_dataset.py --merge-only (Rico + synthetic)
+  manifest_train: "data/comparator/manifest_train_rico.jsonl"
+  manifest_val: "data/comparator/manifest_val_rico.jsonl"
+  manifest_test: "data/comparator/manifest_test_rico.jsonl"
+  # Раздельные источники (опционально, вместо merged):
+  # manifest_train_list:
+  #   - "data/comparator/manifest_train_rico.jsonl"
+  #   - "data/comparator/manifest_train_synthetic.jsonl"
+  rico_root: "C:/Users/petry/OneDrive/Desktop/OwlEye-dl"  # путь к Rico (combined/ или unique_uis/)
+  rico_out: "data/comparator/rico"
+  weights_dir: "weights"
+  best_model: "weights/multi_aspect_comparator_best.pt"
+  last_model: "weights/multi_aspect_comparator_last.pt"
+
+inference:
+  align: true
+  align_max_shift: 15
+  align_method: auto
+  blur_radius: 0.8
+  pass_threshold: 0.68
+  # Пороги merge_report (гибрид NN + EasyOCR + image heuristics)
+  text_nn_strong: 0.62
+  text_nn_weak: 0.72
+  ocr_sim_strong: 0.78
+  image_nn_strong: 0.58
+  overall_bug_threshold: 0.55
+  layout_bug_threshold: 0.48
+
+logging:
+  use_wandb: false
+  log_dir: "runs/comparator"
